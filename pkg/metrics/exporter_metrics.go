@@ -1,3 +1,19 @@
+// Package metrics defines Prometheus metrics for the Tado exporter
+//
+// IMPORTANT: Metric Update Pattern
+// All methods in ExporterMetrics must be explicitly called by the collector
+// to ensure metrics accurately reflect the exporter's state.
+// See pkg/collector/collector.go fetchAndCollectMetrics() for implementation.
+//
+// Metric Methods and Where They're Called:
+// 1. RecordScrapeDuration(duration) - in Collect() after metrics fetch
+// 2. IncrementScrapeErrors() - when GetMe fails or collection errors occur
+// 3. SetAuthenticationValid(valid) - on GetMe success (true) or failure (false)
+// 4. IncrementAuthenticationErrors() - when GetMe fails or no homes found
+// 5. RecordAuthenticationSuccess() - when GetMe succeeds with homes
+//
+// If adding new metrics, ensure they're called in the appropriate places
+// in collector.go and covered by tests.
 package metrics
 
 import (
@@ -52,7 +68,7 @@ func NewExporterMetrics() (*ExporterMetrics, error) {
 		// Authentication status gauge (1 = valid, 0 = invalid/expired)
 		AuthenticationValid: prometheus.NewGauge(prometheus.GaugeOpts{
 			Name: "tado_exporter_authentication_valid",
-			Help: "Set to 1 if Tado authentication is valid, 0 if expired or invalid (requires manual refresh)",
+			Help: "Set to 1 if Tado authentication is valid and metrics are being collected, 0 if authentication failed or no homes found",
 		}),
 
 		// Authentication error counter
@@ -76,7 +92,7 @@ func NewExporterMetrics() (*ExporterMetrics, error) {
 	// Set build info to 1
 	em.BuildInfo.Set(1)
 
-	// Initialize authentication status to valid (0 = not yet verified, will be set during auth)
+	// Initialize authentication status to invalid (will be set to 1 once authentication succeeds during first scrape)
 	em.AuthenticationValid.Set(0)
 
 	return em, nil
