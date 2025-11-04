@@ -16,6 +16,15 @@ Most other Tado integrations were implemented using a username/password authenti
 - **Built for Homelabs**: Lightweight, designed to run on minimal hardware (Raspberry Pi, Docker, bare metal)
 
 ---
+### Grafana Dashboard
+
+A pre-built Grafana dashboard is included for monitoring Tado metrics.
+
+![Grafana Dashboard Screenshot](docs/media/grafana_screenshot.png)
+
+[View the example dashboard JSON](docs/examples/dashboards/tado-exporter.json)
+
+---
 
 ## Quick Start
 
@@ -39,7 +48,23 @@ docker logs tado-exporter
 
 **First run**: Visit the URL shown in `docker logs tado-exporter` to authorize with your Tado account.
 
-### Option 2: Standalone Binary
+### Option 2: Docker Compose (local testing)
+A docker compose YAML file is included for locally testing the exporter along with Prometheus and Grafana containers.
+Start the stack with:
+
+```bash
+# Start the full stack
+cd local && TADO_TOKEN_PASSPHRASE=your-secret docker-compose up -d
+
+# View logs and authenticate by visiting the authentication URL
+cd local && docker-compose logs -f exporter
+
+# Access services
+# - Exporter metrics: http://localhost:9100/metrics
+# - Prometheus: http://localhost:9090
+# - Grafana: http://localhost:3000 (admin/admin)
+
+### Option 3: Standalone Binary
 
 ```bash
 # Build from source
@@ -154,30 +179,6 @@ scrape_configs:
 
 The exporter includes some metrics about it's own operation, intended to be used to identify and alert on failure conditions.
 Examples can be found in [docs/examples/tado-exporter-rules.yml](./docs/examples/tado-exporter-rules.yml)
-
-### Grafana Dashboard
-
-A comprehensive pre-built Grafana dashboard is included for monitoring all Tado metrics.
-
-![Grafana Dashboard Screenshot](docs/media/grafana_screenshot.png)
-
-**Dashboard Features:**
-- **Exporter Status**: Real-time authentication, scrape errors, latency, and health metrics
-- **Weather & Occupancy**: Outside temperature, solar intensity, and resident presence
-- **Zone Status**: Window open/closed and zone power state tables
-- **Zone-by-Zone Monitoring**: Repeating rows for each zone showing:
-  - Temperature vs Target with threshold shading
-  - Humidity overlay on secondary axis
-  - Heating power output
-- **Detailed Diagnostics**: Error rate trends and scrape duration distribution
-
-See [docs/examples/dashboards/README.md](docs/examples/dashboards/README.md) for:
-- Installation instructions (import via UI, API, or Kubernetes)
-- Dashboard features and panel descriptions
-- Customization guide
-- Troubleshooting steps
-
-[View the example dashboard JSON](docs/examples/dashboards/tado-exporter.json)
 
 ---
 
