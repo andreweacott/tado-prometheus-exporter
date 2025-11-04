@@ -1,5 +1,5 @@
 # Multi-stage build
-FROM golang:1.25 AS builder
+FROM golang:1.24 AS builder
 
 WORKDIR /app
 
@@ -25,7 +25,7 @@ RUN apk --no-cache add ca-certificates wget
 # UID 1000 is a safe non-root UID that doesn't conflict with system users
 RUN addgroup -g 1000 -S exporter && \
     adduser -u 1000 -S -G exporter -h /home/exporter -s /sbin/nologin exporter && \
-    mkdir -p /home/exporter/.config && \
+    mkdir -p /home/exporter/.config /home/exporter/.tado-exporter && \
     chown -R exporter:exporter /home/exporter
 
 # Copy binary from builder

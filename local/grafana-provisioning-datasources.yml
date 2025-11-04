@@ -1,0 +1,20 @@
+# Grafana datasource provisioning for local testing
+# This file is automatically loaded by Grafana on startup
+
+apiVersion: 1
+
+# Delete datasources not defined here
+deleteDatasources:
+  - name: Prometheus
+    orgId: 1
+
+datasources:
+  - name: Prometheus
+    type: prometheus
+    access: proxy
+    orgId: 1
+    url: http://prometheus:9090
+    isDefault: true
+    editable: true
+    jsonData:
+      timeInterval: 30s
