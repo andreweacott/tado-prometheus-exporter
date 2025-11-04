@@ -10,7 +10,8 @@ Common issues, diagnostics, and solutions for tado-prometheus-exporter.
 4. [Docker/Container Issues](#dockercontainer-issues)
 5. [Performance Issues](#performance-issues)
 6. [Security Issues](#security-issues)
-7. [Advanced Debugging](#advanced-debugging)
+7. [Alert Troubleshooting](#alert-troubleshooting)
+8. [Advanced Debugging](#advanced-debugging)
 
 ---
 
@@ -36,22 +37,16 @@ Common issues, diagnostics, and solutions for tado-prometheus-exporter.
    docker logs tado-exporter | grep "verification URL"
    ```
 
-2. Visit the URL manually within 5 minutes:
-   ```
-   https://my.tado.com/device-code?userCode=XXXX-XXXX
-   ```
+2. Visit the URL manually within 5 minutes
 
 3. If timeout occurred, restart:
    ```bash
-   # Kill current process
    pkill tado-prometheus-exporter
-
-   # Restart
-   ./exporter --token-path ~/.tado-exporter/token.json \
-              --token-passphrase "$TADO_TOKEN_PASSPHRASE"
+   # or
+   docker restart tado-exporter
    ```
 
-### "Token file corrupted or invalid"
+### Token File Corrupted or Invalid
 
 **Symptom**: Exporter fails with token corruption error
 
@@ -59,7 +54,6 @@ Common issues, diagnostics, and solutions for tado-prometheus-exporter.
 - Wrong passphrase used
 - Token file manually edited
 - Disk corruption
-- File permissions issue
 
 **Solutions**:
 
@@ -85,14 +79,13 @@ Common issues, diagnostics, and solutions for tado-prometheus-exporter.
    # Restart exporter - will trigger device code flow
    ```
 
-### "Passphrase required" Error
+### Passphrase Required Error
 
 **Symptom**: Error indicates passphrase is missing or empty
 
 **Causes**:
 - `TADO_TOKEN_PASSPHRASE` environment variable not set
 - Empty passphrase passed
-- Typo in variable name
 
 **Solutions**:
 
@@ -104,16 +97,9 @@ Common issues, diagnostics, and solutions for tado-prometheus-exporter.
 2. Verify it's set:
    ```bash
    echo $TADO_TOKEN_PASSPHRASE
-   # Should show your passphrase, not empty
    ```
 
-3. For systemd, check `/etc/default/tado-exporter`:
-   ```bash
-   sudo cat /etc/default/tado-exporter
-   # Should have: TADO_TOKEN_PASSPHRASE=<passphrase>
-   ```
-
-4. For Docker, check environment variable:
+3. For Docker, check environment variable:
    ```bash
    docker inspect tado-exporter | grep TADO_TOKEN_PASSPHRASE
    ```
@@ -122,9 +108,9 @@ Common issues, diagnostics, and solutions for tado-prometheus-exporter.
 
 ## Connection Problems
 
-### "Connection refused" to Tado API
+### Cannot Connect to Tado API
 
-**Symptom**: Cannot reach Tado API, connection refused
+**Symptom**: Connection refused or timeout reaching Tado API
 
 **Causes**:
 - Network connectivity issue
@@ -147,28 +133,19 @@ Common issues, diagnostics, and solutions for tado-prometheus-exporter.
    # On Linux with ufw
    sudo ufw status
    sudo ufw allow out to any port 443
-
-   # Check if HTTPS is blocked
-   sudo netstat -tlnp | grep -i listen
    ```
 
-3. Test from container:
-   ```bash
-   docker run --rm tado-prometheus-exporter:test \
-     curl -I https://api.tado.com
-   ```
-
-4. Verify DNS resolution:
+3. Verify DNS resolution:
    ```bash
    nslookup my.tado.com
    # Should resolve to an IP address
    ```
 
-5. Check Tado API status:
+4. Check Tado API status:
    - Visit: https://status.tado.com
    - Look for incidents or maintenance
 
-### "Connection timed out" (10s timeout)
+### Connection Timeout (10s default)
 
 **Symptom**: Exporter times out when collecting metrics
 
@@ -176,14 +153,13 @@ Common issues, diagnostics, and solutions for tado-prometheus-exporter.
 - API is slow or unresponsive
 - Home has many zones (takes time to fetch all)
 - Network latency is high
-- API rate limiting
 
 **Solutions**:
 
 1. Increase scrape timeout:
    ```bash
    # Command-line
-   --scrape-timeout 30
+   ./exporter --scrape-timeout 30
 
    # Environment variable
    TADO_SCRAPE_TIMEOUT=30
@@ -194,74 +170,20 @@ Common issues, diagnostics, and solutions for tado-prometheus-exporter.
 
 2. Check how many zones you have:
    ```bash
-   # The exporter fetches each zone's data individually
-   # More zones = longer fetch time
    curl -s http://localhost:9100/metrics | grep zone_name | sort -u | wc -l
    ```
 
-3. Check API response times:
-   ```bash
-   time curl -s https://api.tado.com/api/v2/homes/$(home_id)/zones | jq . > /dev/null
-   # Look for how long it takes
-   ```
-
-4. Check network latency:
+3. Check network latency:
    ```bash
    ping api.tado.com
    # Look for high latency values
-   ```
-
-### "No route to host" Error
-
-**Symptom**: Cannot reach Tado API servers
-
-**Causes**:
-- No internet connection
-- Network interface down
-- Routing misconfigured
-- Geolocking by ISP
-
-**Solutions**:
-
-1. Check network status:
-   ```bash
-   # Check if connected to network
-   ip link show
-   ip addr show
-
-   # Check default route
-   ip route show
-   ```
-
-2. Test connectivity to public DNS:
-   ```bash
-   # Try Google DNS
-   ping 8.8.8.8
-
-   # Try Cloudflare DNS
-   ping 1.1.1.1
-   ```
-
-3. For Docker, check network:
-   ```bash
-   # Check if container can reach outside
-   docker exec tado-exporter ping 8.8.8.8
-
-   # Inspect network settings
-   docker inspect tado-exporter --format='{{json .NetworkSettings}}'
-   ```
-
-4. Check ISP/firewall geolocking:
-   ```bash
-   # Try VPN if available (not recommended in production)
-   # Contact ISP if port 443 is blocked
    ```
 
 ---
 
 ## Metrics Collection Issues
 
-### "No metrics exposed" / Empty /metrics endpoint
+### No Metrics Exposed / Empty /metrics Endpoint
 
 **Symptom**: `/metrics` endpoint returns empty or minimal metrics
 
@@ -276,7 +198,7 @@ Common issues, diagnostics, and solutions for tado-prometheus-exporter.
 1. Check exporter is running:
    ```bash
    curl http://localhost:9100/health
-   # Should return: {"status":"healthy",...}
+   # Should return: {"status":"ok",...}
    ```
 
 2. Check auth completed:
@@ -297,16 +219,15 @@ Common issues, diagnostics, and solutions for tado-prometheus-exporter.
    TADO_LOG_LEVEL=debug ./exporter ...
 
    # Or for Docker
-   docker exec tado-exporter TADO_LOG_LEVEL=debug
+   docker logs tado-exporter | tail -50
    ```
 
 5. Verify home has zones:
    ```bash
-   # Check if zones exist in your Tado home
    # Log into my.tado.com and verify you have rooms/zones
    ```
 
-### "Some metrics missing"
+### Some Metrics Missing
 
 **Symptom**: Only partial metrics are exposed
 
@@ -314,7 +235,6 @@ Common issues, diagnostics, and solutions for tado-prometheus-exporter.
 - Some zones are offline
 - Tado device not fully provisioned
 - API returned partial data
-- Specific metric type not available
 
 **Solutions**:
 
@@ -322,12 +242,6 @@ Common issues, diagnostics, and solutions for tado-prometheus-exporter.
    ```bash
    # List all metric names
    curl http://localhost:9100/metrics | grep "^tado_" | cut -d'{' -f1 | sort -u
-
-   # Should see:
-   # tado_is_resident_present
-   # tado_solar_intensity_percentage
-   # tado_temperature_measured_celsius
-   # ... etc
    ```
 
 2. Check home data:
@@ -339,19 +253,13 @@ Common issues, diagnostics, and solutions for tado-prometheus-exporter.
    # - All zones are online
    ```
 
-3. Enable debug logs to see what's collected:
-   ```bash
-   TADO_LOG_LEVEL=debug ./exporter ... 2>&1 | grep "metric"
-   ```
-
-### "Metric values are old/stale"
+### Metric Values Are Old/Stale
 
 **Symptom**: Metrics show outdated values
 
 **Causes**:
 - Prometheus cache interval is too long
 - Exporter is not being scraped
-- API is returning cached data
 - Zone is offline
 
 **Solutions**:
@@ -372,26 +280,11 @@ Common issues, diagnostics, and solutions for tado-prometheus-exporter.
    # - Check last scrape time
    ```
 
-3. Check exporter is collecting new data:
-   ```bash
-   # Fetch metrics twice with delay
-   curl http://localhost:9100/metrics | grep "tado_temperature" | head -3
-   sleep 5
-   curl http://localhost:9100/metrics | grep "tado_temperature" | head -3
-   # Timestamp in HELP should differ (if available)
-   ```
-
-4. Check if zone is offline:
-   ```bash
-   curl http://localhost:9100/metrics | grep "zone_name"
-   # If zone is offline, values might not update
-   ```
-
 ---
 
 ## Docker/Container Issues
 
-### Container exits immediately
+### Container Exits Immediately
 
 **Symptom**: Docker container starts then stops
 
@@ -399,7 +292,6 @@ Common issues, diagnostics, and solutions for tado-prometheus-exporter.
 - Missing environment variable
 - Invalid argument
 - Token file permission issue
-- Crash during startup
 
 **Solutions**:
 
@@ -409,7 +301,7 @@ Common issues, diagnostics, and solutions for tado-prometheus-exporter.
    # Look for error messages
    ```
 
-2. Run with interactive mode to see errors:
+2. Run with interactive mode:
    ```bash
    docker run -it --rm \
      -e TADO_TOKEN_PASSPHRASE="passphrase" \
@@ -424,21 +316,14 @@ Common issues, diagnostics, and solutions for tado-prometheus-exporter.
      env | grep TADO
    ```
 
-4. Check volume permissions:
-   ```bash
-   # Create volume with correct permissions
-   docker volume rm tado-tokens
-   docker volume create tado-tokens
-   ```
-
-### Container health check failing
+### Container Health Check Failing
 
 **Symptom**: Docker shows "unhealthy" status
 
 **Causes**:
 - Health endpoint not responding
 - Metrics collection taking too long
-- Container killed due to resource limits
+- Container out of memory
 
 **Solutions**:
 
@@ -452,23 +337,13 @@ Common issues, diagnostics, and solutions for tado-prometheus-exporter.
    docker exec tado-exporter wget -O- http://localhost:9100/health
    ```
 
-3. Increase health check timeout:
-   ```yaml
-   # docker-compose.yml
-   healthcheck:
-     test: ["CMD", "wget", "--timeout=10", "-O-", "http://localhost:9100/health"]
-     interval: 30s
-     timeout: 10s
-     retries: 3
-   ```
-
-4. Check resource limits:
+3. Check resource usage:
    ```bash
    docker stats tado-exporter
    # If memory/CPU at limit, increase them
    ```
 
-### Can't access metrics from host machine
+### Can't Access Metrics from Host
 
 **Symptom**: Cannot reach `localhost:9100/metrics` from host
 
@@ -476,7 +351,6 @@ Common issues, diagnostics, and solutions for tado-prometheus-exporter.
 - Port not forwarded
 - Firewall blocking
 - Container using wrong network
-- Port already in use
 
 **Solutions**:
 
@@ -492,58 +366,10 @@ Common issues, diagnostics, and solutions for tado-prometheus-exporter.
    # Should work if inside container
    ```
 
-3. Check firewall:
-   ```bash
-   # On Linux
-   sudo firewall-cmd --list-ports
-   sudo firewall-cmd --add-port=9100/tcp --permanent
-
-   # On macOS (Docker Desktop)
-   # Already forwards ports to host
-   ```
-
-4. Check if port is in use:
+3. Check if port is in use:
    ```bash
    netstat -tlnp | grep 9100
    lsof -i :9100
-   # Kill if something else is using port
-   ```
-
-### Docker Compose services won't start
-
-**Symptom**: `docker-compose up` fails
-
-**Causes**:
-- Environment variables not set
-- Volume already in use
-- Network port conflict
-- Invalid YAML syntax
-
-**Solutions**:
-
-1. Check `.env` file exists:
-   ```bash
-   ls -la .env
-   cat .env
-   # Should have TADO_TOKEN_PASSPHRASE=...
-   ```
-
-2. Validate YAML:
-   ```bash
-   docker-compose config
-   # Will show any syntax errors
-   ```
-
-3. Clean up and retry:
-   ```bash
-   docker-compose down -v
-   docker-compose up -d
-   ```
-
-4. Check port conflicts:
-   ```bash
-   netstat -tlnp | grep -E "9100|9090|3000"
-   # Kill any existing services on these ports
    ```
 
 ---
@@ -557,7 +383,6 @@ Common issues, diagnostics, and solutions for tado-prometheus-exporter.
 **Causes**:
 - Too many zones (many API calls)
 - Prometheus scraping too frequently
-- Metrics conversion overhead
 - Logging level set to debug
 
 **Solutions**:
@@ -577,12 +402,7 @@ Common issues, diagnostics, and solutions for tado-prometheus-exporter.
    TADO_LOG_LEVEL=warn ./exporter ...
    ```
 
-3. Monitor per-zone collection time:
-   ```bash
-   TADO_LOG_LEVEL=debug ./exporter ... 2>&1 | grep "zone collection"
-   ```
-
-4. Limit CPU in Docker:
+3. Limit CPU in Docker:
    ```yaml
    services:
      exporter:
@@ -596,7 +416,6 @@ Common issues, diagnostics, and solutions for tado-prometheus-exporter.
 **Causes**:
 - Memory leak (unlikely in Go)
 - Large number of metrics buffered
-- Prometheus client buffering
 
 **Solutions**:
 
@@ -611,13 +430,7 @@ Common issues, diagnostics, and solutions for tado-prometheus-exporter.
    ```yaml
    services:
      exporter:
-       mem_limit: 512m  # Limit to 512MB
-   ```
-
-3. Restart periodically:
-   ```bash
-   # In Docker Compose
-   restart: on-failure
+       mem_limit: 512m
    ```
 
 ### Slow Metrics Collection
@@ -628,7 +441,6 @@ Common issues, diagnostics, and solutions for tado-prometheus-exporter.
 - Many zones (N zones = N API calls)
 - Slow network
 - Tado API is slow
-- API rate limiting
 
 **Solutions**:
 
@@ -647,63 +459,42 @@ Common issues, diagnostics, and solutions for tado-prometheus-exporter.
    TADO_SCRAPE_TIMEOUT=30 ./exporter ...
    ```
 
-4. Reduce Prometheus scrape frequency:
-   ```yaml
-   scrape_interval: 120s  # Scrape every 2 minutes instead of 1
-   ```
-
 ---
 
 ## Security Issues
 
-### Token file not encrypted / accidentally exposed
+### Token File Not Encrypted or Exposed
 
 **Symptom**: Token file is readable in plain text
 
 **Causes**:
-- Passphrase not set
-- File manually decrypted
 - Wrong file permissions
+- Passphrase not set
 
 **Solutions**:
 
-1. Verify token encryption:
-   ```bash
-   file ~/.tado-exporter/token.json
-   # Should NOT show readable text
-   ```
-
-2. Verify file permissions:
+1. Verify file permissions:
    ```bash
    ls -la ~/.tado-exporter/token.json
-   # Should be: -rw------- (600) - only readable by owner
+   # Should be: -rw------- (600)
    ```
 
-3. Fix permissions:
+2. Fix permissions:
    ```bash
    chmod 600 ~/.tado-exporter/token.json
-   chown $USER:$GROUP ~/.tado-exporter/token.json
    ```
 
-4. If actually exposed, regenerate:
+3. If actually exposed, regenerate:
    ```bash
    rm ~/.tado-exporter/token.json
    # Restart exporter to re-authenticate
    ```
 
-### Passphrase in command-line history
-
-**Symptom**: Passphrase visible in bash history
+### Passphrase in Command History
 
 **Solutions**:
 
-1. Clear history:
-   ```bash
-   history -c
-   cat /dev/null > ~/.bash_history
-   ```
-
-2. Use environment file instead:
+1. Use environment file instead:
    ```bash
    # Create file with restricted permissions
    cat > ~/.tado-exporter/env << EOF
@@ -715,33 +506,112 @@ Common issues, diagnostics, and solutions for tado-prometheus-exporter.
    source ~/.tado-exporter/env
    ```
 
-3. For systemd, use environment file:
+---
+
+## Alert Troubleshooting
+
+### Exporter Down
+
+**What it means**: Exporter unreachable for 2+ minutes
+
+**Troubleshooting**:
+
+1. Check if running:
    ```bash
-   # Already done in deployment guide
-   sudo cat > /etc/default/tado-exporter <<EOF
-   TADO_TOKEN_PASSPHRASE=...
-   EOF
-   sudo chmod 600 /etc/default/tado-exporter
+   ps aux | grep tado-exporter
+   docker ps | grep tado-exporter
    ```
 
-### Container running as root
+2. Restart:
+   ```bash
+   docker restart tado-exporter
+   ```
 
-**Symptom**: Security concern - container runs as root
+3. Check logs:
+   ```bash
+   docker logs tado-exporter | tail -50
+   ```
 
-**Solutions** (Docker Compose):
+### High Error Rate
 
-```yaml
-services:
-  exporter:
-    user: 1000:1000  # Run as unprivileged user
-    # Or create user in Dockerfile
-```
+**What it means**: More than 10% of collection attempts failing
+
+**Troubleshooting**:
+
+1. Check current errors:
+   ```bash
+   curl http://localhost:9100/metrics | grep scrape_errors
+   ```
+
+2. Check logs:
+   ```bash
+   docker logs tado-exporter --since 5m | grep -i error
+   ```
+
+3. Verify Tado API connectivity:
+   ```bash
+   curl https://api.tado.com
+   ```
+
+### Authentication Invalid
+
+**What it means**: Exporter cannot authenticate with Tado API
+
+**Troubleshooting**:
+
+1. Check token file:
+   ```bash
+   ls -la ~/.tado-exporter/token.json
+   ```
+
+2. Verify passphrase:
+   ```bash
+   echo $TADO_TOKEN_PASSPHRASE
+   ```
+
+3. Check logs:
+   ```bash
+   docker logs tado-exporter | grep -i auth
+   ```
+
+4. Regenerate token:
+   ```bash
+   rm ~/.tado-exporter/token.json
+   docker restart tado-exporter
+   ```
+
+### Missing Metrics
+
+**What it means**: No temperature metrics for 10+ minutes
+
+**Troubleshooting**:
+
+1. Check if exporter has data:
+   ```bash
+   curl http://localhost:9100/metrics | grep tado_temperature
+   ```
+
+2. Verify zones exist:
+   ```bash
+   curl http://localhost:9100/metrics | grep zone_name | head
+   ```
+
+3. Check logs:
+   ```bash
+   docker logs tado-exporter | tail -20
+   ```
+
+4. Wait for first scrape:
+   ```bash
+   # Check scrape count (should be > 0)
+   curl http://localhost:9100/metrics | grep scrape_duration_seconds_count
+   ```
 
 ---
 
 ## Advanced Debugging
 
-### Enable debug logging
+### Enable Debug Logging
 
 ```bash
 # Maximum verbosity
@@ -749,12 +619,9 @@ TADO_LOG_LEVEL=debug ./exporter ... 2>&1 | tee exporter.log
 
 # For Docker
 docker run -e TADO_LOG_LEVEL=debug tado-prometheus-exporter:test
-
-# For Docker Compose
-TADO_LOG_LEVEL=debug docker-compose up
 ```
 
-### Check metrics in detail
+### Check Metrics in Detail
 
 ```bash
 # Get raw metrics with all labels
@@ -767,17 +634,7 @@ curl http://localhost:9100/metrics | grep 'zone_name="Bedroom"'
 curl http://localhost:9100/metrics | grep -v "^#" | grep "^tado_" | cut -d'{' -f1 | sort | uniq -c
 ```
 
-### Trace API calls (requires code modification)
-
-Add to pkg/collector/collector.go:
-
-```go
-log.Debugf("Fetching home data for homeID: %s", tc.homeID)
-// ... API call
-log.Debugf("Received home data: %+v", home)
-```
-
-### Check system resources
+### Check System Resources
 
 ```bash
 # Overall system status
@@ -787,17 +644,13 @@ top      # CPU and memory
 
 # Exporter-specific process
 ps aux | grep exporter
-lsof -p $(pgrep exporter)  # Files and sockets
 ```
 
-### Network diagnostics
+### Network Diagnostics
 
 ```bash
-# Trace HTTP requests (requires curl with verbose)
+# Test HTTP requests
 curl -v http://localhost:9100/metrics 2>&1 | head -30
-
-# Monitor network traffic
-tcpdump -i any -n 'port 9100 or port 443'
 
 # Check DNS resolution
 dig api.tado.com
@@ -812,26 +665,19 @@ If troubleshooting doesn't resolve your issue:
 
 1. **Collect diagnostic information:**
    ```bash
-   # Create diagnostic bundle
    mkdir diagnostics
-   echo "=== Version ===" > diagnostics/info.txt
-   ./exporter --version >> diagnostics/info.txt 2>&1
-
-   echo "=== Configuration ===" >> diagnostics/info.txt
+   echo "=== Configuration ===" > diagnostics/info.txt
    env | grep TADO >> diagnostics/info.txt
 
    echo "=== Metrics ===" > diagnostics/metrics.txt
    curl http://localhost:9100/metrics >> diagnostics/metrics.txt 2>&1
 
    echo "=== Logs ===" > diagnostics/logs.txt
-   journalctl -u tado-exporter -n 100 >> diagnostics/logs.txt
-
-   # ZIP without sensitive data
-   zip -r diagnostics.zip diagnostics/
+   docker logs tado-exporter >> diagnostics/logs.txt
    ```
 
 2. **Open GitHub Issue:**
-   - Include diagnostic bundle
+   - Include diagnostic information
    - Describe what you've tried
    - Include error messages and logs
    - Don't include passphrase or tokens
@@ -846,4 +692,4 @@ If troubleshooting doesn't resolve your issue:
 - [DEPLOYMENT.md](DEPLOYMENT.md) - Deployment options
 - [ARCHITECTURE.md](ARCHITECTURE.md) - System design
 - [HTTP_ENDPOINTS.md](HTTP_ENDPOINTS.md) - API reference
-- [README.md](README.md) - Quick start
+- [README.md](../README.md) - Quick start

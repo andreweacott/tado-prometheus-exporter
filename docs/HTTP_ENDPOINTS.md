@@ -8,11 +8,11 @@ The exporter exposes two main HTTP endpoints:
 1. `/health` - Health check endpoint for container orchestration and monitoring
 2. `/metrics` - Prometheus metrics endpoint for scraping
 
-The server listens on a configurable port (default: 9100) and supports graceful shutdown.
+The server listens on a configurable port (default: 9100).
 
-## Server Configuration
+## Configuration
 
-### Startup
+### Server Startup
 
 ```bash
 ./exporter \
@@ -24,59 +24,34 @@ The server listens on a configurable port (default: 9100) and supports graceful 
 
 ### Environment Variables
 
-The exporter can also be configured via environment variables:
 - `TADO_TOKEN_PATH` - Path to store encrypted token (default: ~/.tado-exporter/token.json)
 - `TADO_TOKEN_PASSPHRASE` - Passphrase to encrypt/decrypt token (required)
 - `TADO_PORT` - HTTP server port (default: 9100)
 - `TADO_HOME_ID` - Optional: Filter to specific home
 - `TADO_SCRAPE_TIMEOUT` - Metrics collection timeout in seconds (default: 10)
 
-### First-Run Authentication
+---
 
-On first run, the exporter will perform OAuth device code authentication:
-
-```
-./exporter --token-path=~/.tado-exporter/token.json --token-passphrase=my-secret
-
-No token found. Visit this link to authenticate:
-https://my.tado.com/oauth/authorize?code=XXXX&device_code=YYYY
-
-# After you authorize, the token is encrypted and saved to token path
-Successfully authenticated. Token stored at: ~/.tado-exporter/token.json (encrypted with passphrase)
-```
-
-On subsequent runs, the existing token is loaded and reused. The token is automatically refreshed when needed.
-
-## Endpoint Specifications
+## Endpoints
 
 ### GET `/health`
 
 Health check endpoint for container orchestration systems (Kubernetes, Docker, etc.).
 
-**Response Format:**
+**Response:**
 ```json
 {
   "status": "ok"
 }
 ```
 
-**Response Headers:**
-- `Content-Type: application/json`
-
-**HTTP Status Codes:**
+**Status Codes:**
 - `200 OK` - Server is healthy and ready to serve metrics
 
 **Example:**
 ```bash
 curl http://localhost:9100/health
-{"status":"ok"}
 ```
-
-**Use Cases:**
-- Kubernetes liveness/readiness probes
-- Docker health checks
-- Load balancer health verification
-- Monitoring dashboards
 
 ---
 
@@ -84,39 +59,25 @@ curl http://localhost:9100/health
 
 Prometheus metrics endpoint for scraping metrics collected from the Tado API.
 
-**Response Format:**
-OpenMetrics text format (Prometheus exposition format)
+**Response Format:** OpenMetrics text format (Prometheus exposition format)
 
-**Response Headers:**
-- `Content-Type: application/openmetrics-text; version=1.0.0; charset=utf-8`
-
-**HTTP Status Codes:**
+**Status Codes:**
 - `200 OK` - Metrics successfully collected and returned
 - `500 Internal Server Error` - Error during metrics collection
+
+**Example:**
+```bash
+curl http://localhost:9100/metrics
+```
 
 **Timeout Behavior:**
 - Each scrape is subject to the `--scrape-timeout` configuration
 - If metrics collection exceeds timeout, metrics from the previous scrape are returned
 - A warning is logged but the request succeeds with stale metrics
 
-**Example:**
-```bash
-curl http://localhost:9100/metrics
-# HELP tado_is_resident_present Whether anyone is home (1 = home, 0 = away)
-# TYPE tado_is_resident_present gauge
-tado_is_resident_present 1
-# HELP tado_temperature_outside_celsius Outside temperature in Celsius
-# TYPE tado_temperature_outside_celsius gauge
-tado_temperature_outside_celsius 15.5
-# HELP tado_temperature_measured_celsius Temperature measured in zone
-# TYPE tado_temperature_measured_celsius gauge
-tado_temperature_measured_celsius{home_id="123456",zone_id="1",zone_name="Living Room",zone_type="HEATING"} 21.3
-...
-```
+## Available Metrics
 
-**Available Metrics:**
-
-#### Home-Level Metrics (no labels)
+### Home-Level Metrics (no labels)
 
 | Metric Name | Type | Description | Unit |
 |---|---|---|---|
@@ -125,7 +86,9 @@ tado_temperature_measured_celsius{home_id="123456",zone_id="1",zone_name="Living
 | `tado_temperature_outside_celsius` | Gauge | Outside temperature | Celsius |
 | `tado_temperature_outside_fahrenheit` | Gauge | Outside temperature | Fahrenheit |
 
-#### Zone-Level Metrics (labeled by home_id, zone_id, zone_name, zone_type)
+### Zone-Level Metrics
+
+Labeled by: `home_id`, `zone_id`, `zone_name`, `zone_type`
 
 | Metric Name | Type | Description | Unit |
 |---|---|---|---|
@@ -138,16 +101,33 @@ tado_temperature_measured_celsius{home_id="123456",zone_id="1",zone_name="Living
 | `tado_is_window_open` | Gauge | Whether window is open | 0 (closed) or 1 (open) |
 | `tado_is_zone_powered` | Gauge | Whether zone is powered on | 0 (off) or 1 (on) |
 
+### Example Metrics Output
+
+```bash
+curl http://localhost:9100/metrics | head -30
+
+# HELP tado_is_resident_present Whether anyone is home (1 = home, 0 = away)
+# TYPE tado_is_resident_present gauge
+tado_is_resident_present 1
+
+# HELP tado_temperature_outside_celsius Outside temperature in Celsius
+# TYPE tado_temperature_outside_celsius gauge
+tado_temperature_outside_celsius 15.5
+
+# HELP tado_temperature_measured_celsius Temperature measured in zone
+# TYPE tado_temperature_measured_celsius gauge
+tado_temperature_measured_celsius{home_id="123456",zone_id="1",zone_name="Living Room",zone_type="HEATING"} 21.3
+```
+
 ---
 
-## HTTP Server Behavior
+## Server Behavior
 
 ### Graceful Shutdown
 
-The server responds to `SIGTERM` and `SIGINT` signals for graceful shutdown:
+The server responds to `SIGTERM` and `SIGINT` signals:
 
 ```bash
-# Send SIGTERM to gracefully shutdown
 kill -TERM <pid>
 ```
 
@@ -157,13 +137,6 @@ kill -TERM <pid>
 3. Wait for in-flight requests to complete (max 10 seconds)
 4. Close listener
 5. Exit with status code 0
-
-**Example Output:**
-```
-Received signal: terminated
-Shutting down HTTP server...
-HTTP server stopped
-```
 
 ### Timeout Configuration
 
@@ -186,11 +159,12 @@ The `--scrape-timeout` parameter controls how long metrics collection is allowed
 
 ---
 
-## Integration Examples
+## Integration with Prometheus
 
-### Prometheus Configuration
+### Basic Configuration
 
 Add to `prometheus.yml`:
+
 ```yaml
 global:
   scrape_interval: 60s
@@ -201,81 +175,23 @@ scrape_configs:
     static_configs:
       - targets: ['localhost:9100']
     scrape_interval: 60s
-    scrape_timeout: 15s  # Should be longer than server's --scrape-timeout
+    scrape_timeout: 15s
 ```
 
-### Kubernetes Deployment
+### Query Examples
 
-```yaml
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: tado-exporter
-spec:
-  replicas: 1
-  selector:
-    matchLabels:
-      app: tado-exporter
-  template:
-    metadata:
-      labels:
-        app: tado-exporter
-      annotations:
-        prometheus.io/scrape: "true"
-        prometheus.io/port: "9100"
-        prometheus.io/path: "/metrics"
-    spec:
-      containers:
-      - name: exporter
-        image: tado-exporter:latest
-        ports:
-        - containerPort: 9100
-        env:
-        - name: TADO_CLIENT_ID
-          valueFrom:
-            secretKeyRef:
-              name: tado-secrets
-              key: client-id
-        - name: TADO_CLIENT_SECRET
-          valueFrom:
-            secretKeyRef:
-              name: tado-secrets
-              key: client-secret
-        - name: TADO_PORT
-          value: "9100"
-        livenessProbe:
-          httpGet:
-            path: /health
-            port: 9100
-          initialDelaySeconds: 10
-          periodSeconds: 30
-        readinessProbe:
-          httpGet:
-            path: /health
-            port: 9100
-          initialDelaySeconds: 5
-          periodSeconds: 10
-```
+```promql
+# Current temperature in bedroom
+tado_temperature_measured_celsius{zone_name="Bedroom"}
 
-### Docker Compose
+# Average heating power
+avg(tado_heating_power_percentage)
 
-```yaml
-version: '3'
-services:
-  tado-exporter:
-    image: tado-exporter:latest
-    ports:
-      - "9100:9100"
-    environment:
-      TADO_CLIENT_ID: ${TADO_CLIENT_ID}
-      TADO_CLIENT_SECRET: ${TADO_CLIENT_SECRET}
-      TADO_PORT: "9100"
-      TADO_SCRAPE_TIMEOUT: "10"
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:9100/health"]
-      interval: 30s
-      timeout: 5s
-      retries: 3
+# Temperature difference from setpoint
+tado_temperature_measured_celsius - tado_temperature_set_celsius
+
+# Is anyone home?
+tado_is_resident_present
 ```
 
 ---
@@ -292,11 +208,6 @@ When the Tado API returns an error or is unreachable:
 - HTTP 200 response is still sent to Prometheus
 - This allows graceful degradation if Tado service is temporarily unavailable
 
-**Example Log:**
-```
-Warning: failed to collect Tado metrics: failed to fetch user: network timeout
-```
-
 ### Timeout Errors
 
 When metrics collection exceeds the scrape timeout:
@@ -306,11 +217,6 @@ When metrics collection exceeds the scrape timeout:
 - Warning is logged
 - Last known metrics are returned
 - HTTP 200 response is sent
-
-**Example Log:**
-```
-Warning: failed to collect Tado metrics: context deadline exceeded
-```
 
 ---
 
@@ -327,49 +233,20 @@ curl -s http://localhost:9100/metrics | head -20
 
 # Test with custom timeout
 curl --max-time 5 http://localhost:9100/metrics
-
-# Watch metrics in real-time
-watch -n 5 'curl -s http://localhost:9100/metrics | grep -v "^#"'
 ```
 
-### Using Python requests
+### Using Python
 
 ```python
 import requests
-import json
 
 # Health check
 resp = requests.get("http://localhost:9100/health")
-print(json.dumps(resp.json(), indent=2))
+print(resp.json())
 
 # Metrics scrape
 resp = requests.get("http://localhost:9100/metrics")
-metrics = resp.text
-print(metrics[:500])  # Print first 500 chars
-```
-
-### Using Go
-
-```go
-package main
-
-import (
-	"fmt"
-	"net/http"
-	"io"
-)
-
-func main() {
-	// Health check
-	resp, _ := http.Get("http://localhost:9100/health")
-	body, _ := io.ReadAll(resp.Body)
-	fmt.Println(string(body))
-
-	// Metrics
-	resp, _ = http.Get("http://localhost:9100/metrics")
-	body, _ = io.ReadAll(resp.Body)
-	fmt.Println(string(body)[:500])
-}
+print(resp.text[:500])
 ```
 
 ---
@@ -380,37 +257,12 @@ func main() {
 
 - `/health` endpoint: < 1ms (responds immediately)
 - `/metrics` endpoint: Depends on Tado API response time (typically 1-5 seconds)
-  - Network latency to Tado servers
-  - API processing time
-  - Timeout configuration
 
 ### Resource Usage
 
 - Memory: ~50MB (Go binary + runtime)
 - CPU: Minimal when idle, brief spike during metrics collection
 - Network: ~5-10 requests per scrape to Tado API
-
-### Optimization Tips
-
-- Set `--scrape-timeout` appropriately for your network conditions
-- Use Prometheus scrape cache to avoid collecting metrics too frequently
-- Monitor exporter metrics to identify slow collections:
-  ```promql
-  # Metrics collection duration (if future version adds it)
-  rate(tado_collection_duration_seconds[5m])
-  ```
-
----
-
-## Monitoring the Exporter
-
-### Self-Metrics (Future Enhancement)
-
-Future versions may expose self-metrics:
-- `tado_exporter_up` - Whether exporter is running
-- `tado_exporter_collection_duration_seconds` - Time to collect metrics
-- `tado_exporter_api_errors_total` - Count of API errors
-- `tado_exporter_last_collection_timestamp` - When metrics were last collected
 
 ---
 
@@ -423,37 +275,23 @@ Future versions may expose self-metrics:
 curl http://localhost:9100/health
 ```
 
-**Check logs for startup errors:**
+**Check logs:**
 ```bash
-# If running via systemd
+docker logs tado-exporter
+# or
 journalctl -u tado-exporter -n 50
-
-# If running in Docker
-docker logs <container-id>
 ```
 
 ### Metrics Not Updating
 
 **Possible causes:**
-1. Tado API authentication failed (check logs)
-2. Network issues reaching Tado servers (check timeout)
-3. Scrape interval too short (Prometheus scrapes faster than exporter can collect)
+1. Tado API authentication failed
+2. Network issues reaching Tado servers
+3. Scrape interval too short
 
 **Increase scrape timeout:**
 ```bash
 ./exporter --scrape-timeout=30
-```
-
-### High Memory Usage
-
-**Possible causes:**
-1. Memory leak in Prometheus library (file an issue)
-2. Excessive number of zones/homes (creates many metric combinations)
-
-**Verify with:**
-```bash
-ps aux | grep exporter
-docker stats <container-id>
 ```
 
 ### Connection Refused
@@ -482,45 +320,18 @@ lsof -i :9100
 
 - Do not expose `/metrics` endpoint to the public internet
 - Use firewall rules to restrict access to trusted IPs
-- Consider using a reverse proxy with authentication
+- Consider using a reverse proxy with authentication if exposing externally
 
 ### Token Security
 
 - Token file permissions: `0600` (read/write by owner only)
 - Store token file on encrypted filesystem
 - Don't commit tokens to version control
-- Rotate OAuth credentials regularly
-
-### TLS/HTTPS
-
-- Future versions may support TLS
-- Currently only HTTP is supported
-- Use a reverse proxy (nginx, etc.) for HTTPS if needed
 
 ---
 
-## Changelog
+## Related Documentation
 
-### Phase 3 (Current)
-
-- ✅ `/health` endpoint with JSON response
-- ✅ `/metrics` endpoint with Prometheus format
-- ✅ Graceful shutdown handling
-- ✅ Configurable scrape timeout
-- ✅ Error handling with stale metrics fallback
-- ✅ Comprehensive integration tests
-- ✅ This documentation
-
-### Phase 4 (Upcoming)
-
-- Actual metrics collection from Tado API
-- Home-level metrics (resident presence, weather)
-- Zone-level metrics (temperature, humidity, heating)
-- Comprehensive error handling
-
-### Phase 5 (Upcoming)
-
-- TLS/HTTPS support
-- Authentication/authorization
-- Self-metrics for exporter monitoring
-- Docker & CI/CD pipeline
+- [DEPLOYMENT.md](DEPLOYMENT.md) - Deployment options
+- [TROUBLESHOOTING.md](TROUBLESHOOTING.md) - Common issues
+- [ARCHITECTURE.md](ARCHITECTURE.md) - System design

@@ -1,11 +1,6 @@
 # Prometheus Alerting Rules - Tado Exporter
 
-This directory contains pre-configured Prometheus alert rules for monitoring the Tado exporter.
-
-## Files Included
-
-- **`tado-exporter.yml`** - Alert rule definitions for Prometheus
-- **`RUNBOOK.md`** - Troubleshooting guide for each alert
+Pre-configured Prometheus alert rules for monitoring the Tado exporter in homelab environments.
 
 ## Quick Start
 
@@ -61,44 +56,20 @@ services:
       - ./alertmanager.yml:/etc/alertmanager/alertmanager.yml
 ```
 
-### Option 3: Kubernetes
-
-```yaml
-apiVersion: v1
-kind: ConfigMap
-metadata:
-  name: prometheus-rules
-  namespace: monitoring
-data:
-  tado-exporter.yml: |
-    <contents of tado-exporter.yml>
-
 ---
-apiVersion: monitoring.coreos.com/v1
-kind: PrometheusRule
-metadata:
-  name: tado-exporter
-  namespace: monitoring
-spec:
-  groups:
-    - name: tado-exporter
-      interval: 30s
-      rules:
-        - <rules from tado-exporter.yml>
-```
 
 ## Alert Rules Overview
 
-### Critical Alerts (Immediate Action Required)
+### Critical Alerts
 
 | Alert | Condition | Action |
 |-------|-----------|--------|
-| `TadoExporterDown` | Exporter unreachable for 2m | Restart exporter/check infrastructure |
-| `TadoExporterAuthenticationInvalid` | Auth invalid for 5m | Regenerate token or check credentials |
+| `TadoExporterDown` | Unreachable for 2m | Restart exporter / check infrastructure |
+| `TadoExporterAuthenticationInvalid` | Invalid auth for 5m | Regenerate token or check credentials |
 | `TadoExporterHighScrapingErrorRate` | >10% errors for 10m | Check API connectivity or auth |
-| `TadoAPIUnreachable` | >50% failures for 5m | Check API status and network connectivity |
+| `TadoAPIUnreachable` | >50% failures for 5m | Check API status and network |
 
-### Warning Alerts (Monitor and Investigate)
+### Warning Alerts
 
 | Alert | Condition | Action |
 |-------|-----------|--------|
@@ -107,19 +78,32 @@ spec:
 | `TadoExporterHighScrapeLa tency` | P95 latency >5s for 10m | Monitor API performance |
 | `TadoExporterScrapingErrors` | Collection failures in 5m | Check logs for details |
 | `TadoExporterMissingMetrics` | No temp metrics for 10m | Wait for first scrape or check config |
-| `TadoExporterCircuitBreakerOpen` | Circuit open for 1m | Fix underlying issue, wait for recovery |
 
-### Info Alerts (Tracking Trends)
+---
 
-| Alert | Condition |
-|-------|-----------|
-| `TadoExporterAverageScrapeDuration` | Avg collection >2s for 5m |
+## Alertmanager Setup
 
-## Configuring Alertmanager
-
-### Basic Alertmanager Configuration
+### Minimal Configuration
 
 Create `/etc/alertmanager/alertmanager.yml`:
+
+```yaml
+global:
+  resolve_timeout: 5m
+
+route:
+  receiver: 'default'
+  group_by: ['alertname']
+  group_wait: 10s
+  group_interval: 10s
+  repeat_interval: 12h
+
+receivers:
+  - name: 'default'
+    # Add your notification channel here
+```
+
+### Slack Integration
 
 ```yaml
 global:
@@ -127,63 +111,71 @@ global:
   slack_api_url: 'YOUR_SLACK_WEBHOOK_URL'
 
 route:
-  receiver: 'default'
-  group_by: ['alertname', 'cluster', 'service']
+  receiver: 'slack'
+  group_by: ['alertname']
   group_wait: 10s
   group_interval: 10s
   repeat_interval: 12h
-  routes:
-    - match:
-        severity: critical
-      receiver: 'critical'
-      continue: true
-    - match:
-        severity: warning
-      receiver: 'warnings'
 
 receivers:
-  - name: 'default'
+  - name: 'slack'
     slack_configs:
       - channel: '#monitoring'
         title: 'Alert: {{ .GroupLabels.alertname }}'
-
-  - name: 'critical'
-    slack_configs:
-      - channel: '#critical-alerts'
-        title: 'CRITICAL: {{ .GroupLabels.alertname }}'
-    pagerduty_configs:
-      - service_key: 'YOUR_PAGERDUTY_SERVICE_KEY'
-
-  - name: 'warnings'
-    slack_configs:
-      - channel: '#warnings'
-        title: 'Warning: {{ .GroupLabels.alertname }}'
+        text: '{{ range .Alerts.Firing }}{{ .Annotations.description }}{{ end }}'
 ```
 
-### Email Notifications
+### Email Integration
 
 ```yaml
 receivers:
   - name: 'email'
     email_configs:
-      - to: 'ops-team@example.com'
+      - to: 'your-email@example.com'
         from: 'prometheus@example.com'
         smarthost: 'smtp.example.com:587'
         auth_username: 'prometheus'
         auth_password: 'password'
-        headers:
-          Subject: '{{ .GroupLabels.alertname }}'
 ```
 
-### PagerDuty Integration
+---
+
+## Customizing Alerts
+
+### Adjusting Thresholds
+
+Edit `tado-exporter.yml` to change alert conditions:
 
 ```yaml
-receivers:
-  - name: 'pagerduty'
-    pagerduty_configs:
-      - service_key: 'YOUR_SERVICE_KEY'
-        description: '{{ .GroupLabels.alertname }}: {{ .Alerts.Firing | len }} firing'
+# Example: Change high latency threshold from 5s to 10s
+- alert: TadoExporterHighScrapeLa tency
+  expr: histogram_quantile(0.95, tado_exporter_scrape_duration_seconds) > 10
+  for: 10m
 ```
+
+### Adjusting Duration
+
+Change the `for` duration to delay alert firing:
+
+```yaml
+# Wait longer before alerting (reduces false positives)
+for: 15m
+
+# Alert faster (catches issues sooner, more noise)
+for: 1m
+```
+
+### Disabling Alerts
+
+Comment out alert rules to disable:
+
+```yaml
+# Disabled for testing
+# - alert: TadoExporterHighScrapeLa tency
+#   expr: ...
+```
+
+---
 
 ## Testing Alerts
 
@@ -200,22 +192,22 @@ receivers:
 
 2. **Trigger High Error Rate**:
    ```bash
-   # Simulate API errors (requires exporter modification for testing)
-   # Or temporarily misconfigure credentials
+   # Misconfigure credentials
    export TADO_TOKEN_PASSPHRASE="wrong-passphrase"
    docker restart tado-exporter
    ```
 
-3. **Check Alert Status**:
-   ```bash
-   # Query Prometheus
-   curl 'http://localhost:9090/api/v1/alerts'
+### Check Alert Status
 
-   # Or visit UI
-   # http://localhost:9090/alerts
-   ```
+```bash
+# Query Prometheus
+curl 'http://localhost:9090/api/v1/alerts'
 
-### Prometheus Expression Editor
+# Or visit UI
+# http://localhost:9090/alerts
+```
+
+### Test Alert Expressions
 
 Use Prometheus UI (http://localhost:9090) to test alert conditions:
 
@@ -230,131 +222,7 @@ rate(tado_exporter_scrape_errors_total[5m])
 tado_exporter_authentication_valid
 ```
 
-## Customizing Alerts
-
-### Adjusting Thresholds
-
-Edit `tado-exporter.yml` to change alert conditions:
-
-```yaml
-# Example: Change high latency threshold from 5s to 10s
-- alert: TadoExporterHighScrapeLa tency
-  expr: histogram_quantile(0.95, tado_exporter_scrape_duration_seconds) > 10  # Changed from 5
-  for: 10m
-```
-
-### Adjusting Alert Duration
-
-Change the `for` duration to delay alert firing:
-
-```yaml
-# Wait longer before alerting
-for: 15m  # Changed from 5m
-
-# Alert faster (less noise, but may catch transients)
-for: 1m
-```
-
-### Disabling Alerts
-
-Comment out or remove alert rule to disable:
-
-```yaml
-# Disabled for testing
-# - alert: TadoExporterHighScrapeLa tency
-#   expr: ...
-```
-
-### Adding Custom Receivers
-
-For new alert channel, add to alertmanager config:
-
-```yaml
-receivers:
-  - name: 'my-custom-receiver'
-    webhook_configs:
-      - url: 'http://example.com/webhook'
-```
-
-Then add route:
-
-```yaml
-routes:
-  - match:
-      alertname: MyCustomAlert
-    receiver: 'my-custom-receiver'
-```
-
-## Understanding Alert Labels
-
-Each alert has labels for routing and grouping:
-
-```yaml
-labels:
-  severity: critical|warning|info
-  component: exporter|authentication|collection|performance|...
-```
-
-Use these labels to route alerts appropriately:
-
-```yaml
-routes:
-  # Critical alerts go to PagerDuty
-  - match:
-      severity: critical
-    receiver: pagerduty
-
-  # Authentication alerts to auth team
-  - match:
-      component: authentication
-    receiver: auth-team
-
-  # Performance alerts to ops
-  - match:
-      component: performance
-    receiver: ops-team
-```
-
-## Alert Annotations
-
-Each alert includes helpful annotations:
-
-- **`summary`**: Brief description of what's wrong
-- **`description`**: Detailed explanation with {{ values }}
-- **`runbook`**: Link to troubleshooting guide
-
-Example use in notification template:
-
-```
-Alert: {{ .GroupLabels.alertname }}
-Severity: {{ .Labels.severity }}
-Component: {{ .Labels.component }}
-
-{{ .Alerts.Firing | len }} firing
-
-Runbook: {{ .Alerts.Firing | first | .Annotations.runbook }}
-```
-
-## Monitoring Alerts Themselves
-
-Monitor the Prometheus instance that evaluates alerts:
-
-```yaml
-# Add meta-alert for Prometheus down
-- alert: PrometheusDown
-  expr: up{job="prometheus"} == 0
-  for: 2m
-```
-
-## Best Practices
-
-1. **Set Runbooks**: Always provide runbook URLs in annotations
-2. **Group by Context**: Group alerts by home_id, zone_id for easier correlation
-3. **Start Conservative**: Use longer `for` durations to avoid alert fatigue
-4. **Document Changes**: Keep changelog of alert modifications
-5. **Regular Reviews**: Quarterly review alerts for relevance and accuracy
-6. **Test Notifications**: Verify notification channels work correctly
-7. **Escalation Paths**: Define clear escalation procedures per severity
+---
 
 ## Troubleshooting Alerts
 
@@ -382,12 +250,7 @@ Monitor the Prometheus instance that evaluates alerts:
    curl http://localhost:9093/api/v1/status
    ```
 
-2. Check receiver configuration:
-   ```bash
-   curl http://localhost:9093/api/v1/alerts
-   ```
-
-3. Test receiver manually:
+2. Test notification channel manually:
    ```bash
    # For Slack
    curl -X POST -H 'Content-type: application/json' \
@@ -399,20 +262,34 @@ Monitor the Prometheus instance that evaluates alerts:
 
 1. Increase `for` duration to filter transient issues
 2. Increase alert thresholds to be less sensitive
-3. Route low-severity alerts to separate channel
-4. Disable info-level alerts if not actionable
+3. Disable low-priority alerts
+
+---
+
+## Best Practices
+
+1. **Start Conservative**: Use longer `for` durations to avoid alert fatigue
+2. **Monitor Trends**: Check Prometheus for trending metrics over time
+3. **Test Regularly**: Verify alerts work by testing notification channels
+4. **Document Changes**: Keep track of alert modifications
+5. **Review Quarterly**: Check if alerts are still relevant
+
+---
 
 ## References
 
 - [Prometheus Alerting Documentation](https://prometheus.io/docs/prometheus/latest/configuration/alerting_rules/)
 - [Alertmanager Configuration](https://prometheus.io/docs/alerting/latest/configuration/)
 - [Alert Best Practices](https://prometheus.io/docs/practices/alerting/)
-- [Runbook Template](https://runbooks.cloudd.io/)
+- [tado-exporter.yml](tado-exporter.yml) - Actual alert rules
+- [TROUBLESHOOTING.md](../TROUBLESHOOTING.md) - Runbook for each alert
+
+---
 
 ## Support
 
 For issues with alerts:
-1. Check `RUNBOOK.md` for troubleshooting
+1. Check [TROUBLESHOOTING.md](../TROUBLESHOOTING.md) for runbook details
 2. Review Prometheus/Alertmanager logs
 3. Test alert expressions in Prometheus UI
-4. File GitHub issue if bug suspected
+4. File GitHub issue if bug suspected: https://github.com/andreweacott/tado-prometheus-exporter/issues
