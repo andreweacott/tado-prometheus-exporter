@@ -1,0 +1,6 @@
+# Local tokens - encrypted but should never be committed
+tokens/
+
+# Docker volumes - local data
+prometheus_data/
+grafana_data/

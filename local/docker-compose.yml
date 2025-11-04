@@ -12,19 +12,22 @@ version: '3.8'
 
 services:
   exporter:
-    build: .
+    build: ..
     container_name: tado-exporter
     ports:
       - "9100:9100"
     volumes:
-      - tado-tokens:/root/.tado-exporter
+      - ./tokens:/root/.tado-exporter
     environment:
       TADO_TOKEN_PASSPHRASE: ${TADO_TOKEN_PASSPHRASE:-your_secure_passphrase}
       TADO_PORT: "9100"
       TADO_SCRAPE_TIMEOUT: "10"
+    # For local testing: run as root to ensure volume permissions work
+    # In production, use standalone docker run with proper user permissions
     command:
       - --token-passphrase=${TADO_TOKEN_PASSPHRASE:-your_secure_passphrase}
       - --port=9100
+    user: "root"
     healthcheck:
       test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:9100/health"]
       interval: 30s
@@ -62,6 +65,12 @@ services:
       - "3000:3000"
     volumes:
       - grafana-data:/var/lib/grafana
+      # Pre-configure Prometheus as a datasource
+      - ./grafana-provisioning-datasources.yml:/etc/grafana/provisioning/datasources/prometheus.yml:ro
+      # Pre-configure dashboard provisioning
+      - ./grafana-provisioning-dashboards.yml:/etc/grafana/provisioning/dashboards/dashboards.yml:ro
+      # Mount the example dashboard
+      - ../docs/examples/dashboards/tado-exporter.json:/etc/grafana/provisioning/dashboards/tado-exporter.json:ro
     environment:
       GF_SECURITY_ADMIN_PASSWORD: admin
       GF_SECURITY_ADMIN_USER: admin
@@ -73,7 +82,6 @@ services:
       - prometheus
 
 volumes:
-  tado-tokens:
   prometheus-data:
   grafana-data:
 

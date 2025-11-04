@@ -157,11 +157,27 @@ Examples can be found in [docs/examples/tado-exporter-rules.yml](./docs/examples
 
 ### Grafana Dashboard
 
-A comprehensive pre-built Grafana dashboard is included for monitoring all Tado metrics. See [docs/examples/dashboards/README.md](docs/examples/dashboards/README.md) for:
+A comprehensive pre-built Grafana dashboard is included for monitoring all Tado metrics.
+
+![Grafana Dashboard Screenshot](docs/media/grafana_screenshot.png)
+
+**Dashboard Features:**
+- **Exporter Status**: Real-time authentication, scrape errors, latency, and health metrics
+- **Weather & Occupancy**: Outside temperature, solar intensity, and resident presence
+- **Zone Status**: Window open/closed and zone power state tables
+- **Zone-by-Zone Monitoring**: Repeating rows for each zone showing:
+  - Temperature vs Target with threshold shading
+  - Humidity overlay on secondary axis
+  - Heating power output
+- **Detailed Diagnostics**: Error rate trends and scrape duration distribution
+
+See [docs/examples/dashboards/README.md](docs/examples/dashboards/README.md) for:
 - Installation instructions (import via UI, API, or Kubernetes)
 - Dashboard features and panel descriptions
 - Customization guide
 - Troubleshooting steps
+
+[View the example dashboard JSON](docs/examples/dashboards/tado-exporter.json)
 
 ---
 

@@ -94,7 +94,9 @@ make clean
 │
 ├── .github/workflows/    # CI/CD (test.yaml, build.yaml)
 ├── Dockerfile            # Multi-stage build for small images
-├── docker-compose.yml    # LOCAL TESTING ONLY: exporter + Prometheus + Grafana
+├── local/                # LOCAL TESTING ONLY: Docker Compose stack and Prometheus config
+│   ├── docker-compose.yml    # Complete observability stack (exporter + Prometheus + Grafana)
+│   └── prometheus.yml        # Prometheus scrape configuration for local testing
 └── Makefile             # Development commands (build, test, lint, run)
 ```
 
@@ -183,7 +185,7 @@ export TADO_PORT=8080
 **Where it's implemented:** `pkg/config/config.go` → `Load()` function
 
 **Why this pattern:** Supports multiple deployment scenarios:
-- Docker: Environment variables in docker-compose.yml
+- Docker: Environment variables in local/docker-compose.yml
 - Kubernetes: ConfigMaps + CLI args
 - Local dev: CLI flags for quick iteration
 
@@ -474,10 +476,10 @@ For local development and testing with a complete observability stack (exporter 
 
 ```bash
 # Start the full local stack (LOCAL TESTING ONLY - not for production)
-TADO_TOKEN_PASSPHRASE=your-secret docker-compose up -d
+cd local && TADO_TOKEN_PASSPHRASE=your-secret docker-compose up -d
 
 # View logs
-docker-compose logs -f exporter
+cd local && docker-compose logs -f exporter
 
 # Access services
 # - Exporter metrics: http://localhost:9100/metrics
@@ -485,7 +487,7 @@ docker-compose logs -f exporter
 # - Grafana: http://localhost:3000 (admin/admin)
 ```
 
-**⚠️ Important:** `docker-compose.yml` is for local development and testing only. For production deployment:
+**⚠️ Important:** `local/docker-compose.yml` is for local development and testing only. For production deployment:
 - Use standalone `docker run` or orchestration platforms (Kubernetes, Docker Swarm)
 - Set up your own Prometheus and Grafana instances separately
 - Use proper secrets management and resource constraints
@@ -663,7 +665,7 @@ for _, tt := range tests {
 
 The default token path is `~/.tado-exporter/token.json`, but in Docker, `HOME=/root`, so it becomes `/root/.tado-exporter/token.json`.
 
-**Why it matters:** Volume mounts need to match. See docker-compose.yml for example.
+**Why it matters:** Volume mounts need to match. In the local docker-compose stack, the exporter runs as root, so tokens go to `/root/.tado-exporter`. For production (non-root user), tokens go to `/home/exporter/.tado-exporter`. See local/docker-compose.yml for the local example.
 
 **2. Prometheus Registration is Global**
 
@@ -982,8 +984,9 @@ make clean         # Remove build artifacts
 
 **Operations:**
 - `Makefile` - Development commands
-- `docker-compose.yml` - Local testing stack (NOT for production)
 - `Dockerfile` - Container image for deployment
+- `local/docker-compose.yml` - Local testing stack (NOT for production)
+- `local/prometheus.yml` - Prometheus scrape configuration for local testing
 - `docs/examples/dashboards/tado-exporter.json` - Grafana dashboard
 
 ---
