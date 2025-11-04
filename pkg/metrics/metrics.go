@@ -135,7 +135,7 @@ func NewMetricDescriptors() (*MetricDescriptors, error) {
 		),
 	}
 
-	// Register all metrics with Prometheus
+	// Register all metrics with Prometheus default registry
 	if err := md.Register(); err != nil {
 		return nil, err
 	}
@@ -143,49 +143,150 @@ func NewMetricDescriptors() (*MetricDescriptors, error) {
 	return md, nil
 }
 
-// Register registers all metrics with the Prometheus registry
-func (md *MetricDescriptors) Register() error {
+// NewMetricDescriptorsUnregistered creates metric descriptors without registering them
+// This is useful for testing where each test needs isolated registries
+func NewMetricDescriptorsUnregistered() (*MetricDescriptors, error) {
+	md := &MetricDescriptors{
+		// Home-level metrics (no labels)
+		IsResidentPresent: prometheus.NewGauge(prometheus.GaugeOpts{
+			Name: "tado_is_resident_present",
+			Help: "Whether anyone is home (1 = home, 0 = away)",
+		}),
+
+		SolarIntensityPercentage: prometheus.NewGauge(prometheus.GaugeOpts{
+			Name: "tado_solar_intensity_percentage",
+			Help: "Solar radiation intensity as a percentage (0-100%)",
+		}),
+
+		TemperatureOutsideCelsius: prometheus.NewGauge(prometheus.GaugeOpts{
+			Name: "tado_temperature_outside_celsius",
+			Help: "Outside temperature in Celsius",
+		}),
+
+		TemperatureOutsideFahrenheit: prometheus.NewGauge(prometheus.GaugeOpts{
+			Name: "tado_temperature_outside_fahrenheit",
+			Help: "Outside temperature in Fahrenheit",
+		}),
+
+		// Zone-level metrics (with labels: zone_id, zone_name, zone_type)
+		TemperatureMeasuredCelsius: *prometheus.NewGaugeVec(
+			prometheus.GaugeOpts{
+				Name: "tado_temperature_measured_celsius",
+				Help: "Measured temperature in Celsius",
+			},
+			[]string{"home_id", "zone_id", "zone_name", "zone_type"},
+		),
+
+		TemperatureMeasuredFahrenheit: *prometheus.NewGaugeVec(
+			prometheus.GaugeOpts{
+				Name: "tado_temperature_measured_fahrenheit",
+				Help: "Measured temperature in Fahrenheit",
+			},
+			[]string{"home_id", "zone_id", "zone_name", "zone_type"},
+		),
+
+		HumidityMeasuredPercentage: *prometheus.NewGaugeVec(
+			prometheus.GaugeOpts{
+				Name: "tado_humidity_measured_percentage",
+				Help: "Measured relative humidity as a percentage (0-100%)",
+			},
+			[]string{"home_id", "zone_id", "zone_name", "zone_type"},
+		),
+
+		TemperatureSetCelsius: *prometheus.NewGaugeVec(
+			prometheus.GaugeOpts{
+				Name: "tado_temperature_set_celsius",
+				Help: "Set/target temperature in Celsius",
+			},
+			[]string{"home_id", "zone_id", "zone_name", "zone_type"},
+		),
+
+		TemperatureSetFahrenheit: *prometheus.NewGaugeVec(
+			prometheus.GaugeOpts{
+				Name: "tado_temperature_set_fahrenheit",
+				Help: "Set/target temperature in Fahrenheit",
+			},
+			[]string{"home_id", "zone_id", "zone_name", "zone_type"},
+		),
+
+		HeatingPowerPercentage: *prometheus.NewGaugeVec(
+			prometheus.GaugeOpts{
+				Name: "tado_heating_power_percentage",
+				Help: "Heating power as a percentage (0-100%)",
+			},
+			[]string{"home_id", "zone_id", "zone_name", "zone_type"},
+		),
+
+		IsWindowOpen: *prometheus.NewGaugeVec(
+			prometheus.GaugeOpts{
+				Name: "tado_is_window_open",
+				Help: "Whether the window is open (1 = open, 0 = closed)",
+			},
+			[]string{"home_id", "zone_id", "zone_name", "zone_type"},
+		),
+
+		IsZonePowered: *prometheus.NewGaugeVec(
+			prometheus.GaugeOpts{
+				Name: "tado_is_zone_powered",
+				Help: "Whether the zone is powered (1 = on, 0 = off)",
+			},
+			[]string{"home_id", "zone_id", "zone_name", "zone_type"},
+		),
+	}
+
+	// Note: We do NOT register here - caller must use RegisterWith()
+	return md, nil
+}
+
+// RegisterWith registers all metrics with the provided Prometheus registry
+func (md *MetricDescriptors) RegisterWith(registerer prometheus.Registerer) error {
 	// Home-level metrics
-	if err := prometheus.DefaultRegisterer.Register(md.IsResidentPresent); err != nil {
+	if err := registerer.Register(md.IsResidentPresent); err != nil {
 		return err
 	}
-	if err := prometheus.DefaultRegisterer.Register(md.SolarIntensityPercentage); err != nil {
+	if err := registerer.Register(md.SolarIntensityPercentage); err != nil {
 		return err
 	}
-	if err := prometheus.DefaultRegisterer.Register(md.TemperatureOutsideCelsius); err != nil {
+	if err := registerer.Register(md.TemperatureOutsideCelsius); err != nil {
 		return err
 	}
-	if err := prometheus.DefaultRegisterer.Register(md.TemperatureOutsideFahrenheit); err != nil {
+	if err := registerer.Register(md.TemperatureOutsideFahrenheit); err != nil {
 		return err
 	}
 
 	// Zone-level metrics
-	if err := prometheus.DefaultRegisterer.Register(&md.TemperatureMeasuredCelsius); err != nil {
+	if err := registerer.Register(&md.TemperatureMeasuredCelsius); err != nil {
 		return err
 	}
-	if err := prometheus.DefaultRegisterer.Register(&md.TemperatureMeasuredFahrenheit); err != nil {
+	if err := registerer.Register(&md.TemperatureMeasuredFahrenheit); err != nil {
 		return err
 	}
-	if err := prometheus.DefaultRegisterer.Register(&md.HumidityMeasuredPercentage); err != nil {
+	if err := registerer.Register(&md.HumidityMeasuredPercentage); err != nil {
 		return err
 	}
-	if err := prometheus.DefaultRegisterer.Register(&md.TemperatureSetCelsius); err != nil {
+	if err := registerer.Register(&md.TemperatureSetCelsius); err != nil {
 		return err
 	}
-	if err := prometheus.DefaultRegisterer.Register(&md.TemperatureSetFahrenheit); err != nil {
+	if err := registerer.Register(&md.TemperatureSetFahrenheit); err != nil {
 		return err
 	}
-	if err := prometheus.DefaultRegisterer.Register(&md.HeatingPowerPercentage); err != nil {
+	if err := registerer.Register(&md.HeatingPowerPercentage); err != nil {
 		return err
 	}
-	if err := prometheus.DefaultRegisterer.Register(&md.IsWindowOpen); err != nil {
+	if err := registerer.Register(&md.IsWindowOpen); err != nil {
 		return err
 	}
-	if err := prometheus.DefaultRegisterer.Register(&md.IsZonePowered); err != nil {
+	if err := registerer.Register(&md.IsZonePowered); err != nil {
 		return err
 	}
 
 	return nil
+}
+
+// Register registers all metrics with the Prometheus default registry
+// Deprecated: Use RegisterWith instead for custom registries
+func (md *MetricDescriptors) Register() error {
+	return md.RegisterWith(prometheus.DefaultRegisterer)
 }
 
 // Reset clears all metric values (useful for testing)

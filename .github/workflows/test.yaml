@@ -34,6 +34,11 @@ jobs:
       - name: Download dependencies
         run: go mod download
 
+      - name: Check go.mod and go.sum are up to date
+        run: |
+          go mod tidy
+          git diff --exit-code
+
       - name: Run linter
         uses: golangci/golangci-lint-action@v3
         with:

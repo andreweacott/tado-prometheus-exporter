@@ -26,7 +26,7 @@ import (
 // TadoCollector implements the prometheus.Collector interface
 // It fetches Tado metrics on-demand when Prometheus scrapes the /metrics endpoint
 type TadoCollector struct {
-	tadoClient        *tado.ClientWithResponses
+	tadoClient        TadoAPI
 	metricDescriptors *metrics.MetricDescriptors
 	scrapeTimeout     time.Duration
 	homeID            string // Optional: filter to specific home
@@ -36,7 +36,7 @@ type TadoCollector struct {
 
 // NewTadoCollector creates a new Tado metrics collector
 func NewTadoCollector(
-	tadoClient *tado.ClientWithResponses,
+	tadoClient TadoAPI,
 	metricDescriptors *metrics.MetricDescriptors,
 	scrapeTimeout time.Duration,
 	homeID string,
@@ -46,7 +46,7 @@ func NewTadoCollector(
 
 // NewTadoCollectorWithLogger creates a new Tado metrics collector with logging
 func NewTadoCollectorWithLogger(
-	tadoClient *tado.ClientWithResponses,
+	tadoClient TadoAPI,
 	metricDescriptors *metrics.MetricDescriptors,
 	scrapeTimeout time.Duration,
 	homeID string,
@@ -167,7 +167,7 @@ func (tc *TadoCollector) fetchAndCollectMetrics(ctx context.Context) error {
 	var collectionErrors []string
 
 	// Get current user and homes
-	meResponse, err := tc.tadoClient.GetMeWithResponse(ctx)
+	user, err := tc.tadoClient.GetMe(ctx)
 	if err != nil {
 		errMsg := fmt.Sprintf("failed to fetch user: %v", err)
 		tc.log.Warn(errMsg)
@@ -177,17 +177,6 @@ func (tc *TadoCollector) fetchAndCollectMetrics(ctx context.Context) error {
 		// Return early if we can't even get the list of homes
 		return fmt.Errorf("unable to retrieve user information: %w", err)
 	}
-
-	if meResponse.StatusCode() != 200 || meResponse.JSON200 == nil {
-		errMsg := fmt.Sprintf("failed to fetch user: status code %d", meResponse.StatusCode())
-		tc.log.Warn(errMsg)
-		if tc.exporterMetrics != nil {
-			tc.exporterMetrics.IncrementScrapeErrors()
-		}
-		return fmt.Errorf("failed to fetch user: status code %d", meResponse.StatusCode())
-	}
-
-	user := meResponse.JSON200
 	if user.Homes == nil || len(*user.Homes) == 0 {
 		tc.log.Warn("no homes found for user account")
 		return fmt.Errorf("no homes found for user account")
@@ -244,16 +233,16 @@ func (tc *TadoCollector) fetchAndCollectMetrics(ctx context.Context) error {
 // collectHomeMetrics collects home-level metrics (presence, weather)
 func (tc *TadoCollector) collectHomeMetrics(ctx context.Context, homeID tado.HomeId) error {
 	// Get home state (for resident presence)
-	stateResponse, err := tc.tadoClient.GetHomeStateWithResponse(ctx, homeID)
+	homeState, err := tc.tadoClient.GetHomeState(ctx, homeID)
 	if err != nil {
 		return fmt.Errorf("failed to get home state: %w", err)
 	}
 
-	if stateResponse.StatusCode() == 200 && stateResponse.JSON200 != nil {
+	if homeState != nil {
 		// Update resident presence metric
 		// Presence is "HOME" or "AWAY"
 		var presence float64
-		if stateResponse.JSON200.Presence != nil && string(*stateResponse.JSON200.Presence) == "HOME" {
+		if homeState.Presence != nil && string(*homeState.Presence) == "HOME" {
 			presence = 1.0
 		} else {
 			presence = 0.0
@@ -262,13 +251,12 @@ func (tc *TadoCollector) collectHomeMetrics(ctx context.Context, homeID tado.Hom
 	}
 
 	// Get weather (for solar intensity and outside temperature)
-	weatherResponse, err := tc.tadoClient.GetWeatherWithResponse(ctx, homeID)
+	weather, err := tc.tadoClient.GetWeather(ctx, homeID)
 	if err != nil {
 		return fmt.Errorf("failed to get weather: %w", err)
 	}
 
-	if weatherResponse.StatusCode() == 200 && weatherResponse.JSON200 != nil {
-		weather := weatherResponse.JSON200
+	if weather != nil {
 
 		// Update solar intensity metric
 		if weather.SolarIntensity != nil && weather.SolarIntensity.Percentage != nil {
@@ -293,146 +281,133 @@ func (tc *TadoCollector) collectHomeMetrics(ctx context.Context, homeID tado.Hom
 // This function continues collecting metrics for each zone even if one zone fails,
 // ensuring partial metrics are available even if some zones have errors.
 func (tc *TadoCollector) collectZoneMetrics(ctx context.Context, homeID tado.HomeId) error {
-	var collectionErrors []string
-
 	// Get all zones for this home
-	zonesResponse, err := tc.tadoClient.GetZonesWithResponse(ctx, homeID)
+	zones, err := tc.tadoClient.GetZones(ctx, homeID)
 	if err != nil {
 		return fmt.Errorf("failed to get zones: %w", err)
 	}
 
-	if zonesResponse.StatusCode() != 200 || zonesResponse.JSON200 == nil {
-		return fmt.Errorf("failed to get zones: status code %d", zonesResponse.StatusCode())
-	}
-
-	zones := *zonesResponse.JSON200
-
 	// Get zone states
-	statesResponse, err := tc.tadoClient.GetZoneStatesWithResponse(ctx, homeID)
+	zoneStates, err := tc.tadoClient.GetZoneStates(ctx, homeID)
 	if err != nil {
 		return fmt.Errorf("failed to get zone states: %w", err)
 	}
 
-	if statesResponse.StatusCode() != 200 || statesResponse.JSON200 == nil {
-		return fmt.Errorf("no zone states available")
+	if zoneStates == nil || zoneStates.ZoneStates == nil {
+		return fmt.Errorf("zone states are nil")
 	}
-
-	zoneStates := statesResponse.JSON200
 
 	// Collect metrics for each zone - continue even if one fails
+	homeIDStr := fmt.Sprintf("%d", homeID)
 	zoneCount := 0
 	zoneErrorCount := 0
-	zoneStateMapRef := zoneStates.ZoneStates
-	if zoneStateMapRef == nil {
-		return fmt.Errorf("zone states map is nil")
-	}
-	zoneStateMapDeref := *zoneStateMapRef
 
 	for _, zone := range zones {
-		// Zone.Id is a pointer
-		zoneID := zone.Id
-		if zoneID == nil {
-			tc.log.Warn("Zone ID is nil")
-			continue
-		}
-
-		zoneIDStr := fmt.Sprintf("%d", *zoneID)
-		zoneCount++
-
-		// Get zone state from the map
-		zoneState, ok := zoneStateMapDeref[zoneIDStr]
-		if !ok {
+		if err := tc.collectSingleZoneMetrics(homeIDStr, zone, *zoneStates.ZoneStates); err != nil {
 			zoneErrorCount++
-			tc.log.WithField("zone_id", zoneIDStr).Warn("No zone state found for zone")
-			collectionErrors = append(collectionErrors, fmt.Sprintf("zone %s: state not found", zoneIDStr))
-			continue
+			tc.log.WithField("zone_id", fmt.Sprintf("%d", *zone.Id)).Warn("Failed to collect zone metrics", "error", err.Error())
 		}
-
-		// Prepare label values (handle pointers)
-		homeIDStr := fmt.Sprintf("%d", homeID)
-		zoneName := zone.Name
-		if zoneName == nil {
-			zoneName = &[]string{"unknown"}[0]
-		}
-		zoneType := ""
-		if zone.Type != nil {
-			zoneType = string(*zone.Type)
-		}
-
-		// Collect measured temperature and humidity
-		if zoneState.SensorDataPoints != nil {
-			if zoneState.SensorDataPoints.InsideTemperature != nil {
-				if zoneState.SensorDataPoints.InsideTemperature.Celsius != nil {
-					tc.metricDescriptors.TemperatureMeasuredCelsius.WithLabelValues(
-						homeIDStr, zoneIDStr, *zoneName, zoneType,
-					).Set(float64(*zoneState.SensorDataPoints.InsideTemperature.Celsius))
-				}
-
-				if zoneState.SensorDataPoints.InsideTemperature.Fahrenheit != nil {
-					tc.metricDescriptors.TemperatureMeasuredFahrenheit.WithLabelValues(
-						homeIDStr, zoneIDStr, *zoneName, zoneType,
-					).Set(float64(*zoneState.SensorDataPoints.InsideTemperature.Fahrenheit))
-				}
-			}
-
-			if zoneState.SensorDataPoints.Humidity != nil && zoneState.SensorDataPoints.Humidity.Percentage != nil {
-				tc.metricDescriptors.HumidityMeasuredPercentage.WithLabelValues(
-					homeIDStr, zoneIDStr, *zoneName, zoneType,
-				).Set(float64(*zoneState.SensorDataPoints.Humidity.Percentage))
-			}
-		}
-
-		// Collect set temperature
-		if zoneState.Setting != nil && zoneState.Setting.Temperature != nil {
-			if zoneState.Setting.Temperature.Celsius != nil {
-				tc.metricDescriptors.TemperatureSetCelsius.WithLabelValues(
-					homeIDStr, zoneIDStr, *zoneName, zoneType,
-				).Set(float64(*zoneState.Setting.Temperature.Celsius))
-			}
-
-			if zoneState.Setting.Temperature.Fahrenheit != nil {
-				tc.metricDescriptors.TemperatureSetFahrenheit.WithLabelValues(
-					homeIDStr, zoneIDStr, *zoneName, zoneType,
-				).Set(float64(*zoneState.Setting.Temperature.Fahrenheit))
-			}
-		}
-
-		// Collect heating power
-		if zoneState.ActivityDataPoints != nil && zoneState.ActivityDataPoints.HeatingPower != nil &&
-			zoneState.ActivityDataPoints.HeatingPower.Percentage != nil {
-			tc.metricDescriptors.HeatingPowerPercentage.WithLabelValues(
-				homeIDStr, zoneIDStr, *zoneName, zoneType,
-			).Set(float64(*zoneState.ActivityDataPoints.HeatingPower.Percentage))
-		}
-
-		// Collect window status
-		// OpenWindow is non-nil if a window is detected as open
-		windowOpen := 0.0
-		if zoneState.OpenWindow != nil {
-			windowOpen = 1.0
-		}
-		tc.metricDescriptors.IsWindowOpen.WithLabelValues(
-			homeIDStr, zoneIDStr, *zoneName, zoneType,
-		).Set(windowOpen)
-
-		// Collect zone powered status
-		zonePowered := 0.0
-		if zoneState.Setting != nil && zoneState.Setting.Power != nil && string(*zoneState.Setting.Power) == "ON" {
-			zonePowered = 1.0
-		}
-		tc.metricDescriptors.IsZonePowered.WithLabelValues(
-			homeIDStr, zoneIDStr, *zoneName, zoneType,
-		).Set(zonePowered)
+		zoneCount++
 	}
 
 	// Log zone collection summary
-	if len(collectionErrors) > 0 {
+	if zoneErrorCount > 0 {
 		tc.log.Warn("Zone metrics collection completed with errors",
-			"home_id", fmt.Sprintf("%d", homeID),
+			"home_id", homeIDStr,
 			"total_zones", zoneCount,
-			"zones_with_errors", zoneErrorCount,
-			"error_count", len(collectionErrors))
+			"zones_with_errors", zoneErrorCount)
 	}
+
+	return nil
+}
+
+// collectSingleZoneMetrics collects metrics for a single zone
+func (tc *TadoCollector) collectSingleZoneMetrics(homeIDStr string, zone tado.Zone, zoneStatesMap map[string]tado.ZoneState) error {
+	// Validate zone ID
+	if zone.Id == nil {
+		return fmt.Errorf("zone ID is nil")
+	}
+
+	zoneIDStr := fmt.Sprintf("%d", *zone.Id)
+
+	// Get zone state from the map
+	zoneState, ok := zoneStatesMap[zoneIDStr]
+	if !ok {
+		return fmt.Errorf("zone state not found in map")
+	}
+
+	// Extract zone metadata for labels
+	zoneName := zone.Name
+	if zoneName == nil {
+		zoneName = &[]string{"unknown"}[0]
+	}
+	zoneType := ""
+	if zone.Type != nil {
+		zoneType = string(*zone.Type)
+	}
+
+	// Extract all metrics from zone state
+	metrics := ExtractAllZoneMetrics(&zoneState)
+
+	// Record measured temperature (Celsius)
+	if metrics.MeasuredTemperatureCelsius != nil {
+		tc.metricDescriptors.TemperatureMeasuredCelsius.WithLabelValues(
+			homeIDStr, zoneIDStr, *zoneName, zoneType,
+		).Set(float64(*metrics.MeasuredTemperatureCelsius))
+	}
+
+	// Record measured temperature (Fahrenheit)
+	if metrics.MeasuredTemperatureFahrenheit != nil {
+		tc.metricDescriptors.TemperatureMeasuredFahrenheit.WithLabelValues(
+			homeIDStr, zoneIDStr, *zoneName, zoneType,
+		).Set(float64(*metrics.MeasuredTemperatureFahrenheit))
+	}
+
+	// Record measured humidity
+	if metrics.MeasuredHumidity != nil {
+		tc.metricDescriptors.HumidityMeasuredPercentage.WithLabelValues(
+			homeIDStr, zoneIDStr, *zoneName, zoneType,
+		).Set(float64(*metrics.MeasuredHumidity))
+	}
+
+	// Record target temperature (Celsius)
+	if metrics.TargetTemperatureCelsius != nil {
+		tc.metricDescriptors.TemperatureSetCelsius.WithLabelValues(
+			homeIDStr, zoneIDStr, *zoneName, zoneType,
+		).Set(float64(*metrics.TargetTemperatureCelsius))
+	}
+
+	// Record target temperature (Fahrenheit)
+	if metrics.TargetTemperatureFahrenheit != nil {
+		tc.metricDescriptors.TemperatureSetFahrenheit.WithLabelValues(
+			homeIDStr, zoneIDStr, *zoneName, zoneType,
+		).Set(float64(*metrics.TargetTemperatureFahrenheit))
+	}
+
+	// Record heating power
+	if metrics.HeatingPowerPercentage != nil {
+		tc.metricDescriptors.HeatingPowerPercentage.WithLabelValues(
+			homeIDStr, zoneIDStr, *zoneName, zoneType,
+		).Set(float64(*metrics.HeatingPowerPercentage))
+	}
+
+	// Record window status (1 = open, 0 = closed)
+	windowOpen := 0.0
+	if metrics.IsWindowOpen {
+		windowOpen = 1.0
+	}
+	tc.metricDescriptors.IsWindowOpen.WithLabelValues(
+		homeIDStr, zoneIDStr, *zoneName, zoneType,
+	).Set(windowOpen)
+
+	// Record zone powered status (1 = on, 0 = off)
+	zonePowered := 0.0
+	if metrics.IsZonePowered {
+		zonePowered = 1.0
+	}
+	tc.metricDescriptors.IsZonePowered.WithLabelValues(
+		homeIDStr, zoneIDStr, *zoneName, zoneType,
+	).Set(zonePowered)
 
 	return nil
 }

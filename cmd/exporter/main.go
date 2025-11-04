@@ -71,12 +71,15 @@ func initializeAuth(ctx context.Context, cfg *config.Config, log *logger.Logger)
 	// - Performing device code OAuth flow if no valid token
 	// - Storing encrypted token with passphrase
 	log.Info("Initializing Tado authentication...")
-	tadoClient, err := auth.NewAuthenticatedTadoClient(ctx, cfg.TokenPath, cfg.TokenPassphrase)
+	tadoClientRaw, err := auth.NewAuthenticatedTadoClient(ctx, cfg.TokenPath, cfg.TokenPassphrase)
 	if err != nil {
 		return nil, nil, fmt.Errorf("authentication failed: %w", err)
 	}
 
 	log.Info("Successfully authenticated", "token_path", cfg.TokenPath)
+
+	// Wrap the client in the adapter to implement TadoAPI interface
+	tadoClient := collector.NewTadoClientAdapter(tadoClientRaw)
 
 	scrapeTimeout := time.Duration(cfg.ScrapeTimeout) * time.Second
 	tadoCollector := collector.NewTadoCollectorWithLogger(tadoClient, metricDescs, scrapeTimeout, cfg.HomeID, log)

@@ -6,14 +6,20 @@ import (
 	"time"
 
 	"github.com/andreweacott/tado-prometheus-exporter/pkg/metrics"
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
 // TestNewTadoCollector tests collector creation
 func TestNewTadoCollector(t *testing.T) {
-	metricDescs, err := metrics.NewMetricDescriptors()
+	t.Parallel()
+
+	// Use isolated registry to avoid global state conflicts
+	registry := prometheus.NewRegistry()
+	metricDescs, err := metrics.NewMetricDescriptorsUnregistered()
 	require.NoError(t, err)
+	require.NoError(t, metricDescs.RegisterWith(registry))
 
 	collector := NewTadoCollector(
 		nil,
@@ -27,19 +33,63 @@ func TestNewTadoCollector(t *testing.T) {
 }
 
 // TestNewTadoCollector_WithHomeID tests collector creation with home ID filter
-// Skipped: MetricDescriptors are created globally and can't be created twice
 func TestNewTadoCollector_WithHomeID(t *testing.T) {
-	t.Skip("Skipped: Tested indirectly via TestMultipleHomeIDFiltering")
+	t.Parallel()
+
+	// Use isolated registry
+	registry := prometheus.NewRegistry()
+	metricDescs, err := metrics.NewMetricDescriptorsUnregistered()
+	require.NoError(t, err)
+	require.NoError(t, metricDescs.RegisterWith(registry))
+
+	collector := NewTadoCollector(
+		nil,
+		metricDescs,
+		10*time.Second,
+		"123",
+	)
+
+	assert.NotNil(t, collector)
+	assert.Equal(t, "123", collector.homeID)
 }
 
 // TestNewTadoCollector_TimeoutConfiguration tests collector timeout configuration
-// Skipped: Creating multiple MetricDescriptors causes Prometheus registration conflicts
 func TestNewTadoCollector_TimeoutConfiguration(t *testing.T) {
-	t.Skip("Skipped: Multiple MetricDescriptors creation causes Prometheus duplicate registration")
+	t.Parallel()
+
+	// Use isolated registry
+	registry := prometheus.NewRegistry()
+	metricDescs, err := metrics.NewMetricDescriptorsUnregistered()
+	require.NoError(t, err)
+	require.NoError(t, metricDescs.RegisterWith(registry))
+
+	testCases := []struct {
+		name    string
+		timeout time.Duration
+	}{
+		{"5 seconds", 5 * time.Second},
+		{"30 seconds", 30 * time.Second},
+		{"1 minute", 1 * time.Minute},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			collector := NewTadoCollector(
+				nil,
+				metricDescs,
+				tc.timeout,
+				"",
+			)
+
+			assert.Equal(t, tc.timeout, collector.scrapeTimeout)
+		})
+	}
 }
 
 // TestPresenceValue tests presence value conversion
 func TestPresenceValue(t *testing.T) {
+	t.Parallel()
+
 	tests := []struct {
 		name     string
 		presence string
@@ -72,6 +122,8 @@ func TestPresenceValue(t *testing.T) {
 
 // TestPowerValue tests power value conversion
 func TestPowerValue(t *testing.T) {
+	t.Parallel()
+
 	tests := []struct {
 		name     string
 		power    string
@@ -104,6 +156,8 @@ func TestPowerValue(t *testing.T) {
 
 // TestWindowOpenValue tests window open value conversion
 func TestWindowOpenValue(t *testing.T) {
+	t.Parallel()
+
 	tests := []struct {
 		name     string
 		detected bool
@@ -136,6 +190,8 @@ func TestWindowOpenValue(t *testing.T) {
 
 // TestLabelFormattingForMetrics tests that labels are properly formatted
 func TestLabelFormattingForMetrics(t *testing.T) {
+	t.Parallel()
+
 	homeID := int32(123456)
 	zoneID := int32(1)
 	zoneName := "Living Room"
@@ -157,6 +213,8 @@ func TestLabelFormattingForMetrics(t *testing.T) {
 
 // TestTemperatureConversion tests temperature handling
 func TestTemperatureConversion(t *testing.T) {
+	t.Parallel()
+
 	tests := []struct {
 		name       string
 		celsius    float64
@@ -192,13 +250,22 @@ func TestTemperatureConversion(t *testing.T) {
 }
 
 // TestMetricDescriptorsCreation tests that metric descriptors can be created
-// Skipped: Already testing metrics in the exporter tests since they're created once globally
 func TestMetricDescriptorsCreation(t *testing.T) {
-	t.Skip("Skipped: Metrics are tested in exporter integration tests to avoid duplicate registration")
+	t.Parallel()
+
+	// Use isolated registry
+	registry := prometheus.NewRegistry()
+	metricDescs, err := metrics.NewMetricDescriptorsUnregistered()
+	require.NoError(t, err)
+	require.NoError(t, metricDescs.RegisterWith(registry))
+
+	assert.NotNil(t, metricDescs)
 }
 
 // TestMultipleHomeIDFiltering tests home ID filtering logic
 func TestMultipleHomeIDFiltering(t *testing.T) {
+	t.Parallel()
+
 	tests := []struct {
 		name      string
 		filterID  string

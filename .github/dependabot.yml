@@ -1,0 +1,43 @@
+version: 2
+updates:
+  # Enable version updates for Go modules
+  - package-ecosystem: "gomod"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "03:00"
+    # Limit to 5 open PRs to prevent overwhelming the repo
+    open-pull-requests-limit: 5
+    # Assign to maintainer for review
+    reviewers:
+      - "andreweacott"
+    # Auto-merge minor and patch updates (optional)
+    # Uncomment below to enable auto-merge for safer updates
+    # auto-merge-options:
+    #   merge-method: "squash"
+    #   squash-strategy: "single-commit"
+    # Strategy: Group dependency updates
+    allow:
+      - dependency-type: "direct"
+      - dependency-type: "indirect"
+    commit-message:
+      prefix: "chore"
+      include: "scope"
+    labels:
+      - "dependencies"
+      - "security"
+
+  # Enable version updates for GitHub Actions
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "04:00"
+    open-pull-requests-limit: 3
+    reviewers:
+      - "andreweacott"
+    labels:
+      - "ci/cd"
+      - "github-actions"
