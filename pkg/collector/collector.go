@@ -173,13 +173,25 @@ func (tc *TadoCollector) fetchAndCollectMetrics(ctx context.Context) error {
 		tc.log.Warn(errMsg)
 		if tc.exporterMetrics != nil {
 			tc.exporterMetrics.IncrementScrapeErrors()
+			tc.exporterMetrics.IncrementAuthenticationErrors()
+			tc.exporterMetrics.SetAuthenticationValid(false)
 		}
 		// Return early if we can't even get the list of homes
 		return fmt.Errorf("unable to retrieve user information: %w", err)
 	}
 	if user.Homes == nil || len(*user.Homes) == 0 {
 		tc.log.Warn("no homes found for user account")
+		if tc.exporterMetrics != nil {
+			tc.exporterMetrics.IncrementAuthenticationErrors()
+			tc.exporterMetrics.SetAuthenticationValid(false)
+		}
 		return fmt.Errorf("no homes found for user account")
+	}
+
+	// Authentication succeeded - set metric to valid and record success timestamp
+	if tc.exporterMetrics != nil {
+		tc.exporterMetrics.SetAuthenticationValid(true)
+		tc.exporterMetrics.RecordAuthenticationSuccess()
 	}
 
 	// Collect metrics from each home - continue even if one fails
