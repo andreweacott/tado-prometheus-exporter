@@ -10,7 +10,7 @@
 
 **What is this?** A Prometheus exporter that collects metrics from Tado smart heating systems.
 
-**Key Innovation:** Uses OAuth 2.0 device code grant flow (the "visit this URL" authentication) with encrypted token storage, enabling unattended operation without requiring upfront OAuth app registration. This is different from most exporters that require pre-configured client credentials.
+**Key Innovation:** Uses OAuth 2.0 device code grant flow (the "visit this URL" authentication) with encrypted token storage, enabling unattended operation without requiring upfront OAuth app registration. This is different from other tado prometheus exporters that use an outdated (and now unsupported) username/password based authentication.
 
 **Architecture Philosophy:** Simple, fault-tolerant, observable. The system continues collecting partial metrics even when some API calls fail—crucial for production monitoring.
 
@@ -29,14 +29,14 @@
 
 - **Go 1.23+** (note: go.mod specifies 1.25.1, but 1.23+ should work)
 - **Docker** (optional, for containerized deployment)
-- **A Tado account** (for testing real authentication)
+- **A Tado account**
 
 ### Quick Start (5 minutes)
 
 ```bash
 # 1. Clone and build
-git clone <repo-url>
-cd tado-exporter-nova
+git clone git@github.com:andreweacott/tado-prometheus-exporter.git
+cd tado-prometheus-exporter
 make build
 
 # 2. Run (you'll be prompted to authenticate on first run)
@@ -94,7 +94,9 @@ make clean
 │
 ├── .github/workflows/    # CI/CD (test.yaml, build.yaml)
 ├── Dockerfile            # Multi-stage build for small images
-├── docker-compose.yml    # Full stack: exporter + Prometheus + Grafana
+├── local/                # LOCAL TESTING ONLY: Docker Compose stack and Prometheus config
+│   ├── docker-compose.yml    # Complete observability stack (exporter + Prometheus + Grafana)
+│   └── prometheus.yml        # Prometheus scrape configuration for local testing
 └── Makefile             # Development commands (build, test, lint, run)
 ```
 
@@ -131,11 +133,12 @@ make clean
 
 ## Key Concepts & Patterns
 
-### 1. OAuth2 Device Code Flow (The Authentication "Magic")
+### 1. OAuth2 Device Code Flow
 
-**Why it's special:** Most OAuth apps require you to register an app, get client credentials, and configure redirect URIs. This uses the **device code grant**, which only requires:
+**Why it's important:** Most OAuth apps require you to register an app, get client credentials, and configure redirect URIs. This uses the **device code grant**, which only requires:
 1. A passphrase (to encrypt the token)
-2. User visits a URL and authorizes
+2. User visits a URL and authorizes once
+3. Refresh token is stored and used to continue accessing the API
 
 **Where it happens:** `pkg/auth/authenticator.go` → delegates to `github.com/clambin/tado/v2` library
 
@@ -176,13 +179,13 @@ if err := tc.collectHomeMetrics(ctx, homeID); err != nil {
 export TADO_PORT=8080
 
 # CLI flag overrides to 9100
-./exporter --port=9100  # Uses 9100, not 8080
+./tado-exporter --port=9100  # Uses 9100, not 8080
 ```
 
 **Where it's implemented:** `pkg/config/config.go` → `Load()` function
 
 **Why this pattern:** Supports multiple deployment scenarios:
-- Docker: Environment variables in docker-compose.yml
+- Docker: Environment variables in local/docker-compose.yml
 - Kubernetes: ConfigMaps + CLI args
 - Local dev: CLI flags for quick iteration
 
@@ -300,6 +303,8 @@ registry.Register(metric)
    ```
 
 5. **Write a test** in `pkg/collector/collector_test.go`
+
+6. **Document** in README.md
 
 **Gotcha:** If you get Prometheus registration errors in tests, consider using a custom registry or skipping the test.
 
@@ -454,21 +459,8 @@ go tool cover -html=coverage.out
 # Build image
 make docker-build
 
-# Run container
+# Run container (production-ready)
 make docker-run TOKEN_PASSPHRASE=your-secret
-
-# Or use docker-compose (includes Prometheus + Grafana)
-cp .env.example .env
-# Edit .env and set TADO_TOKEN_PASSPHRASE
-docker-compose up -d
-
-# View logs
-docker-compose logs -f exporter
-
-# Access services
-# - Exporter metrics: http://localhost:9100/metrics
-# - Prometheus: http://localhost:9090
-# - Grafana: http://localhost:3000 (admin/admin)
 ```
 
 **Dockerfile Details:**
@@ -477,6 +469,29 @@ docker-compose logs -f exporter
 - Includes CA certificates for HTTPS
 - Health check on /health endpoint
 - Final image is tiny (~10-20 MB)
+
+### Local Testing with Docker Compose
+
+For local development and testing with a complete observability stack (exporter + Prometheus + Grafana):
+
+```bash
+# Start the full local stack (LOCAL TESTING ONLY - not for production)
+cd local && TADO_TOKEN_PASSPHRASE=your-secret docker-compose up -d
+
+# View logs
+cd local && docker-compose logs -f exporter
+
+# Access services
+# - Exporter metrics: http://localhost:9100/metrics
+# - Prometheus: http://localhost:9090
+# - Grafana: http://localhost:3000 (admin/admin)
+```
+
+**⚠️ Important:** `local/docker-compose.yml` is for local development and testing only. For production deployment:
+- Use standalone `docker run` or orchestration platforms (Kubernetes, Docker Swarm)
+- Set up your own Prometheus and Grafana instances separately
+- Use proper secrets management and resource constraints
+- Configure persistent storage appropriately for your environment
 
 ### Add a Configuration Option
 
@@ -500,7 +515,7 @@ docker-compose logs -f exporter
 
 4. **Write tests** in `pkg/config/config_test.go`
 
-5. **Document** in README.md and `.env.example`
+5. **Document** in README.md
 
 ---
 
@@ -650,7 +665,7 @@ for _, tt := range tests {
 
 The default token path is `~/.tado-exporter/token.json`, but in Docker, `HOME=/root`, so it becomes `/root/.tado-exporter/token.json`.
 
-**Why it matters:** Volume mounts need to match. See docker-compose.yml for example.
+**Why it matters:** Volume mounts need to match. In the local docker-compose stack, the exporter runs as root, so tokens go to `/root/.tado-exporter`. For production (non-root user), tokens go to `/home/exporter/.tado-exporter`. See local/docker-compose.yml for the local example.
 
 **2. Prometheus Registration is Global**
 
@@ -863,7 +878,6 @@ cat ~/.tado-exporter/token.json
 
 **5. Kubernetes Deployment Best Practices**
 
-- **Exists:** Basic deployment guidance in README and DEPLOYMENT.md
 - **Unknown:** Detailed Kubernetes manifests (Deployment, Service, ConfigMap, Secret)
 - **Next step:** Create `k8s/` directory with example manifests
 
@@ -887,27 +901,15 @@ cat ~/.tado-exporter/token.json
 ### Official Documentation
 
 - **README.md** - Quick start, usage, metrics reference
-- **ARCHITECTURE.md** - Detailed architecture decisions and patterns
-- **DEPLOYMENT.md** - Production deployment guide
-- **TROUBLESHOOTING.md** - Common issues and solutions
-- **HTTP_ENDPOINTS.md** - API endpoint documentation
-- **alerts/** - Pre-configured Prometheus alert rules with runbooks
-- **dashboards/** - Pre-built Grafana dashboard (tado-exporter.json)
 
 ### Pre-Built Monitoring Resources
 
-**🎯 Prometheus Alerts** (`alerts/tado-exporter.yml`)
-- Critical: TadoExporterDown, AuthenticationInvalid, HighScrapingErrorRate
-- Warning: AuthenticationFailures, HighScrapeLatency, CircuitBreakerOpen
-- Complete with runbook links and annotations
-- See `alerts/README.md` and `alerts/RUNBOOK.md` for setup and troubleshooting
-
-**📊 Grafana Dashboard** (`dashboards/tado-exporter.json`)
+**📊 Grafana Dashboard** (`docs/examples/dashboards/tado-exporter.json`)
 - Comprehensive monitoring: authentication status, temperatures, humidity, heating power
 - 24-hour trends with mean/max/min aggregations
 - Exporter health panels (scrape duration, errors, latency)
 - Weather data (outside temp, solar intensity, presence)
-- Import via Grafana UI or API - see `dashboards/README.md`
+- Import via Grafana UI or API - see `docs/examples/dashboards/README.md`
 
 ### External Links
 
@@ -982,9 +984,10 @@ make clean         # Remove build artifacts
 
 **Operations:**
 - `Makefile` - Development commands
-- `docker-compose.yml` - Full stack deployment
-- `alerts/tado-exporter.yml` - Prometheus alert rules
-- `dashboards/tado-exporter.json` - Grafana dashboard
+- `Dockerfile` - Container image for deployment
+- `local/docker-compose.yml` - Local testing stack (NOT for production)
+- `local/prometheus.yml` - Prometheus scrape configuration for local testing
+- `docs/examples/dashboards/tado-exporter.json` - Grafana dashboard
 
 ---
 

@@ -1,270 +1,246 @@
-# tado-prometheus-exporter
+# Tado Prometheus Exporter
 
-A Prometheus exporter for [Tado](https://www.tado.com/) heating systems, written in Go. Features OAuth 2.0 device code grant authentication with encrypted token storage—enabling unattended operation without user interaction, with no upfront OAuth app registration required.
+[![Go Report Card](https://goreportcard.com/badge/github.com/andreweacott/tado-prometheus-exporter)](https://goreportcard.com/report/github.com/andreweacott/tado-prometheus-exporter)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Docker](https://img.shields.io/badge/Docker-Available-blue?logo=docker)](https://hub.docker.com/r/adventuresintech/tado-prometheus-exporter)
+[![GitHub Release](https://img.shields.io/github/v/release/andreweacott/tado-prometheus-exporter)](https://github.com/andreweacott/tado-prometheus-exporter/releases)
 
-## Features
+Export [Tado](https://www.tado.com/) heating system metrics to Prometheus. Monitor your home's temperature, humidity, heating power, and occupancy with easy setup, encrypted token storage, and no OAuth app registration required.
 
-- **OAuth 2.0 Device Code Grant**: Automatic, zero-config authentication with encrypted token storage
-- **No App Registration Required**: Uses device code OAuth flow—just provide a passphrase for token encryption
-- **Encrypted Token Storage**: Tokens stored securely on disk with user-provided passphrase
-- **Automatic Token Refresh**: Long-running unattended operation without user interaction
-- **On-Demand Metrics**: Metrics fetched only when Prometheus scrapes the `/metrics` endpoint
-- **Comprehensive Metrics**: Home-level and zone-level temperature, humidity, heating power, and window status
-- **Docker Support**: Multi-stage build with minimal final image size
-- **CI/CD Ready**: GitHub Actions workflows for testing and automated Docker image builds
-- **Graceful Shutdown**: Proper signal handling for container orchestration
+## Why This Project?
+
+Most other Tado integrations were implemented using a username/password authentication schema that has now been deprecated.  This project uses the [recommended OAuth device code grant flow](https://support.tado.com/en/articles/8565472-how-do-i-authenticate-to-access-the-rest-api) instead. 
+
+- **Low Configuration**: Just provide a passphrase; tokens are encrypted and stored locally
+- **(Mostly) Unattended**: First time authentication requires user interaction, then run forever without interaction
+- **Built for Homelabs**: Lightweight, designed to run on minimal hardware (Raspberry Pi, Docker, bare metal)
+
+---
+### Grafana Dashboard
+
+A pre-built Grafana dashboard is included for monitoring Tado metrics.
+
+![Grafana Dashboard Screenshot](docs/media/grafana_screenshot.png)
+
+[View the example dashboard JSON](docs/examples/dashboards/tado-exporter.json)
+
+---
 
 ## Quick Start
 
-### Prerequisites
-
-- Go 1.23+ (for development)
-- Docker (for containerized deployment)
-- A secure passphrase for token encryption (any string you choose)
-
-### Installation
-
-#### Docker
+### Option 1: Docker (Standalone)
 
 ```bash
-docker run -v tado-tokens:/root/.tado-exporter \
+# Build locally
+docker build -t tado-exporter .
+
+# Run container
+docker run -d \
+  --name tado-exporter \
   -p 9100:9100 \
-  -e TADO_TOKEN_PASSPHRASE=<your_secure_passphrase> \
-  ghcr.io/andreweacott/tado-prometheus-exporter:latest \
-  --token-passphrase=<your_secure_passphrase>
+  -v tado-tokens:/root/.tado-exporter \
+  -e TADO_TOKEN_PASSPHRASE="your-secure-passphrase" \
+  tado-exporter
+
+# Check logs for authentication URL
+docker logs tado-exporter
 ```
 
-On first run, you'll be prompted to authenticate with your Tado account via device code flow (visit the provided URL in your browser).
+**First run**: Visit the URL shown in `docker logs tado-exporter` to authorize with your Tado account.
 
-#### From Source
+### Option 2: Docker Compose (local testing)
+A docker compose YAML file is included for locally testing the exporter along with Prometheus and Grafana containers.
+Start the stack with:
 
 ```bash
+# Start the full stack
+cd local && TADO_TOKEN_PASSPHRASE=your-secret docker-compose up -d
+
+# View logs and authenticate by visiting the authentication URL
+cd local && docker-compose logs -f exporter
+
+# Access services
+# - Exporter metrics: http://localhost:9100/metrics
+# - Prometheus: http://localhost:9090
+# - Grafana: http://localhost:3000 (admin/admin)
+
+### Option 3: Standalone Binary
+
+```bash
+# Build from source
 git clone https://github.com/andreweacott/tado-prometheus-exporter.git
 cd tado-prometheus-exporter
-go build -o tado-exporter ./cmd/exporter
-./tado-exporter --token-passphrase=<your_secure_passphrase>
+make build
+
+# Run with your passphrase
+./tado-exporter --token-passphrase="your-secure-passphrase"
+
+# Follow the authentication prompt
 ```
 
-On first run, the exporter will guide you through device code authentication. After that, it will reuse the encrypted token for subsequent runs.
+---
 
 ## Configuration
 
-### Command-Line Flags
+### Common Options
 
-```
---token-passphrase string
-    Passphrase to encrypt/decrypt Tado token (required)
-
---token-path string
-    Path to encrypted token file (default: ~/.tado-exporter/token.json)
-
---port int
-    HTTP server listen port (default: 9100)
-
---home-id string
-    Tado Home ID (optional, auto-detect if not provided)
-
---scrape-timeout int
-    Maximum time in seconds to wait for metrics collection (default: 10)
-
---log-level string
-    Logging verbosity: debug, info, warn, error (default: info)
+```bash
+./tado-exporter \
+  --token-passphrase="your-passphrase" \           # Required
+  --port=9100 \                                      # Metrics port (default: 9100)
+  --scrape-timeout=10 \                             # API timeout seconds (default: 10)
+  --home-id="12345" \                               # Optional: filter to specific home
+  --log-level=info                                  # debug|info|warn|error (default: info)
 ```
 
 ### Environment Variables
 
-All configuration can be set via environment variables:
+All flags can be set via environment variables:
 
-```
-TADO_TOKEN_PASSPHRASE      # Token passphrase (required)
-TADO_TOKEN_PATH            # Path to token file
-TADO_PORT                  # HTTP server port
-TADO_HOME_ID               # Tado home ID
-TADO_SCRAPE_TIMEOUT        # Metrics collection timeout
-```
-
-### First-Run Authentication
-
-On first run, the exporter will automatically initiate OAuth 2.0 device code authentication:
-
-1. You'll see a message with a verification URL and code
-2. Visit the URL in your web browser
-3. Authorize the application with your Tado account
-4. Token will be encrypted with your passphrase and saved for future use
-
-**Example:**
-```
-No token found. Visit this link to authenticate:
-https://my.tado.com/oauth/authorize?code=XXXX&device_code=YYYY
-
-Successfully authenticated. Token stored at: ~/.tado-exporter/token.json (encrypted with passphrase)
+```bash
+export TADO_TOKEN_PASSPHRASE="your-passphrase"
+export TADO_PORT=9100
+export TADO_SCRAPE_TIMEOUT=10
+export TADO_HOME_ID=12345
+export TADO_LOG_LEVEL=info
 ```
 
-On subsequent runs, the exporter loads the encrypted token automatically (no re-authentication needed).
+---
 
-## Endpoints
+## Authentication Flow
 
-- `GET /metrics` - Prometheus metrics endpoint
-- `GET /health` - Health check endpoint
+**First run** (one-time setup):
 
-## Metrics
+1. Start the exporter
+2. You'll see:
+   ```
+   Visit this URL to authenticate:
+   https://my.tado.com/authorize?user_code=ABCD-1234
+   ```
+3. Open the URL in your browser
+4. Authorize the exporter with your Tado account
+5. Token is encrypted and saved automatically
+
+**Subsequent runs**:
+- Exporter loads the encrypted token automatically
+- Token is refreshed as needed
+- No re-authentication required
+
+---
+
+## Metrics Reference
 
 ### Home-Level Metrics
 
-- `tado_is_resident_present` - Whether anyone is home (0/1)
-- `tado_solar_intensity_percentage` - Solar radiation intensity (0-100%)
-- `tado_temperature_outside_celsius` - Outside temperature in Celsius
-- `tado_temperature_outside_fahrenheit` - Outside temperature in Fahrenheit
+| Metric | Type | Description |
+|--------|------|-------------|
+| `tado_is_resident_present` | Gauge | Whether anyone is home (1=yes, 0=no) |
+| `tado_solar_intensity_percentage` | Gauge | Solar radiation intensity (0-100%) |
+| `tado_temperature_outside_celsius` | Gauge | Outside temperature (°C) |
+| `tado_temperature_outside_fahrenheit` | Gauge | Outside temperature (°F) |
 
 ### Zone-Level Metrics
 
-All zone metrics are labeled with `zone_id`, `zone_name`, and `zone_type`.
+Labeled with: `home_id`, `zone_id`, `zone_name`, `zone_type`
 
-- `tado_temperature_measured_celsius` - Measured temperature in Celsius
-- `tado_temperature_measured_fahrenheit` - Measured temperature in Fahrenheit
-- `tado_humidity_measured_percentage` - Measured humidity (0-100%)
-- `tado_temperature_set_celsius` - Set/target temperature in Celsius
-- `tado_temperature_set_fahrenheit` - Set/target temperature in Fahrenheit
-- `tado_heating_power_percentage` - Heating power (0-100%)
-- `tado_is_window_open` - Window open status (0/1)
-- `tado_is_zone_powered` - Zone power status (0/1)
+| Metric | Type | Description |
+|--------|------|-------------|
+| `tado_temperature_measured_celsius` | Gauge | Current temperature (°C) |
+| `tado_temperature_measured_fahrenheit` | Gauge | Current temperature (°F) |
+| `tado_humidity_measured_percentage` | Gauge | Humidity (0-100%) |
+| `tado_temperature_set_celsius` | Gauge | Target temperature (°C) |
+| `tado_temperature_set_fahrenheit` | Gauge | Target temperature (°F) |
+| `tado_heating_power_percentage` | Gauge | Heating output (0-100%) |
+| `tado_is_window_open` | Gauge | Window open status (1=open, 0=closed) |
+| `tado_is_zone_powered` | Gauge | Zone power state (1=on, 0=off) |
 
-## Development
+### Exporter Health Metrics
 
-### Build
+| Metric | Type | Description |
+|--------|------|-------------|
+| `tado_exporter_scrape_duration_seconds` | Histogram | Time to collect metrics (buckets: 0.1s, 0.2s, ..., 3.2s) |
+| `tado_exporter_scrape_errors_total` | Counter | Total collection errors |
+| `tado_exporter_authentication_valid` | Gauge | Is authentication valid? (1=yes, 0=no) |
 
-```bash
-go build -o tado-exporter ./cmd/exporter
-```
+---
 
-### Test
+## Example Prometheus Integration
 
-```bash
-go test -v ./...
-```
-
-### Lint
-
-```bash
-golangci-lint run ./...
-```
-
-### Docker Build
-
-```bash
-docker build -t tado-prometheus-exporter .
-```
-
-## Deployment
-
-### Docker Compose
-
-```yaml
-version: '3.8'
-
-services:
-  exporter:
-    build: .
-    ports:
-      - "9100:9100"
-    volumes:
-      - tado-tokens:/root/.tado-exporter
-    environment:
-      TADO_TOKEN_PASSPHRASE: ${TADO_TOKEN_PASSPHRASE}
-    command:
-      - --token-passphrase=${TADO_TOKEN_PASSPHRASE}
-      - --port=9100
-
-  prometheus:
-    image: prom/prometheus:latest
-    ports:
-      - "9090:9090"
-    volumes:
-      - ./prometheus.yml:/etc/prometheus/prometheus.yml
-    command:
-      - '--config.file=/etc/prometheus/prometheus.yml'
-
-volumes:
-  tado-tokens:
-```
-
-Create a `.env` file with your token passphrase:
-```bash
-TADO_TOKEN_PASSPHRASE=your_secure_passphrase_here
-```
-
-Then run:
-```bash
-docker-compose up
-```
-
-### Prometheus Configuration
-
-Add to your `prometheus.yml`:
+### Add to `prometheus.yml`:
 
 ```yaml
 scrape_configs:
   - job_name: 'tado'
     static_configs:
-      - targets: ['localhost:9100']
-    scrape_interval: 5m  # Adjust as needed
+      - targets: ['<exporter_hostname>:9100']
 ```
 
-## Security
+### Alerting
 
-- **Encrypted Tokens**: Tokens are encrypted with your passphrase and stored in `~/.tado-exporter/token.json`
-- **File Permissions**: Token file is created with restrictive permissions (owner read/write only)
-- **Passphrase Protection**: Choose a strong passphrase—it's the key to your encrypted token
-- **In Docker**: Use Docker secrets or `.env` files (not committed to git) for passphrase management
-- **Environment Variables**: Pass `TADO_TOKEN_PASSPHRASE` via Docker secrets, not in compose files
-- **Never commit**: Token files or passphrases to version control
-- **Network**: The exporter communicates with Tado API over HTTPS. Consider using a reverse proxy with authentication if exposing metrics externally.
+The exporter includes some metrics about it's own operation, intended to be used to identify and alert on failure conditions.
+Examples can be found in [docs/examples/tado-exporter-rules.yml](./docs/examples/tado-exporter-rules.yml)
+
+---
 
 ## Troubleshooting
 
-### Authentication Issues
+### Common Issues
 
-- **No token prompt on first run**: Check that you're running the exporter with `--token-passphrase` and internet connectivity
-- **"Failed to create OAuth2 client"**: Verify your passphrase is correct and token file location is writable
-- **Token file permission denied**: Ensure the directory `~/.tado-exporter/` has correct permissions
-- **Device code expired**: You have 5 minutes to complete authentication. Check your network connection and try again
-- **Review logs**: Run with `--log-level=debug` for detailed diagnostics
+**Q: "Device code expired"**
+- You have 5 minutes to complete authentication
+- Check internet connectivity and try again
 
-### Metric Collection Issues
+**Q: "Token file corrupted or invalid"**
+- Verify passphrase is correct
+- Check file permissions: `ls -la ~/.tado-exporter/token.json`
+- Delete and re-authenticate: `rm ~/.tado-exporter/token.json && docker restart tado-exporter`
 
-- **No metrics returned**: Verify Home ID is correct (or omit to auto-detect)
-- **Timeout errors**: Increase `--scrape-timeout` if your network is slow
-- **Connection refused**: Ensure the exporter port (default 9100) is not in use
-- **Check Prometheus**: Review Prometheus logs for scrape errors: `curl http://localhost:9100/metrics`
+**Q: "No metrics returned"**
+- Check exporter is running: `curl http://localhost:9100/health`
+- Check logs: `docker logs tado-exporter`
+- Increase timeout if your network is slow: `--scrape-timeout=30`
 
-### Docker Issues
+**Q: "Prometheus not scraping metrics"**
+- Verify Prometheus config has exporter in scrape_configs
+- Check Prometheus targets page: http://localhost:9090/targets
+- Ensure exporter port (9100) is accessible from Prometheus
 
-- **Container exits immediately**: Check logs with `docker logs <container-id>`
-- **Token file not persisting**: Ensure volume is mounted correctly: `-v tado-tokens:/root/.tado-exporter`
-- **Passphrase not passed correctly**: Use environment variables or `.env` files, not hardcoded in compose files
+---
 
-### Additional Help
+## Contributing
+See the [CONTRIBUTING](CONTRIBUTING.md) guide for details on how to contribute.
 
-See [HTTP_ENDPOINTS.md](HTTP_ENDPOINTS.md) for detailed endpoint documentation.
-
-## Architecture
-
-See [IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md) for detailed architecture and development phases.
+---
 
 ## License
 
-[Add your license here]
+Licensed under the MIT License. See [LICENSE](LICENSE) file for details.
 
-## Contributing
+---
 
-Contributions are welcome! Please follow these guidelines:
+## Support & Community
 
-1. Fork the repository
-2. Create a feature branch
-3. Make your changes
-4. Run tests and linting
-5. Submit a pull request
+- 📖 **Documentation**: See [docs/](docs/) for detailed guides
+- 🐛 **Issues**: [Report bugs or request features](https://github.com/andreweacott/tado-prometheus-exporter/issues)
+- 💬 **Discussions**: [Ask questions or share ideas](https://github.com/andreweacott/tado-prometheus-exporter/discussions)
+- ⭐ **Like it?** Consider starring the repository to show your support
 
-## Support
+---
 
-For issues, questions, or suggestions, please open an issue on GitHub.
+## Related Projects
+
+- [clambin/tado](https://github.com/clambin/tado) - Tado API Go library
+- [Prometheus](https://prometheus.io/) - Monitoring and alerting toolkit
+- [Grafana](https://grafana.com/) - Visualization platform
+
+---
+
+## Acknowledgments
+
+- Built with [clambin/tado](https://github.com/clambin/tado) Tado API library
+- Follows [Prometheus exporter best practices](https://prometheus.io/docs/practices/instrumentation/)
+- Inspired by the homelab community
+
+---
+
+**Made with ❤️ for home automation enthusiasts and homelabs**
