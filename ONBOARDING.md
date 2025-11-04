@@ -10,7 +10,7 @@
 
 **What is this?** A Prometheus exporter that collects metrics from Tado smart heating systems.
 
-**Key Innovation:** Uses OAuth 2.0 device code grant flow (the "visit this URL" authentication) with encrypted token storage, enabling unattended operation without requiring upfront OAuth app registration. This is different from most exporters that require pre-configured client credentials.
+**Key Innovation:** Uses OAuth 2.0 device code grant flow (the "visit this URL" authentication) with encrypted token storage, enabling unattended operation without requiring upfront OAuth app registration. This is different from other tado prometheus exporters that use an outdated (and now unsupported) username/password based authentication.
 
 **Architecture Philosophy:** Simple, fault-tolerant, observable. The system continues collecting partial metrics even when some API calls fail—crucial for production monitoring.
 
@@ -29,14 +29,14 @@
 
 - **Go 1.23+** (note: go.mod specifies 1.25.1, but 1.23+ should work)
 - **Docker** (optional, for containerized deployment)
-- **A Tado account** (for testing real authentication)
+- **A Tado account**
 
 ### Quick Start (5 minutes)
 
 ```bash
 # 1. Clone and build
-git clone <repo-url>
-cd tado-exporter-nova
+git clone git@github.com:andreweacott/tado-prometheus-exporter.git
+cd tado-prometheus-exporter
 make build
 
 # 2. Run (you'll be prompted to authenticate on first run)
@@ -131,11 +131,12 @@ make clean
 
 ## Key Concepts & Patterns
 
-### 1. OAuth2 Device Code Flow (The Authentication "Magic")
+### 1. OAuth2 Device Code Flow
 
-**Why it's special:** Most OAuth apps require you to register an app, get client credentials, and configure redirect URIs. This uses the **device code grant**, which only requires:
+**Why it's important:** Most OAuth apps require you to register an app, get client credentials, and configure redirect URIs. This uses the **device code grant**, which only requires:
 1. A passphrase (to encrypt the token)
-2. User visits a URL and authorizes
+2. User visits a URL and authorizes once
+3. Refresh token is stored and used to continue accessing the API
 
 **Where it happens:** `pkg/auth/authenticator.go` → delegates to `github.com/clambin/tado/v2` library
 
@@ -176,7 +177,7 @@ if err := tc.collectHomeMetrics(ctx, homeID); err != nil {
 export TADO_PORT=8080
 
 # CLI flag overrides to 9100
-./exporter --port=9100  # Uses 9100, not 8080
+./tado-exporter --port=9100  # Uses 9100, not 8080
 ```
 
 **Where it's implemented:** `pkg/config/config.go` → `Load()` function
@@ -863,7 +864,6 @@ cat ~/.tado-exporter/token.json
 
 **5. Kubernetes Deployment Best Practices**
 
-- **Exists:** Basic deployment guidance in README and DEPLOYMENT.md
 - **Unknown:** Detailed Kubernetes manifests (Deployment, Service, ConfigMap, Secret)
 - **Next step:** Create `k8s/` directory with example manifests
 
@@ -887,27 +887,15 @@ cat ~/.tado-exporter/token.json
 ### Official Documentation
 
 - **README.md** - Quick start, usage, metrics reference
-- **ARCHITECTURE.md** - Detailed architecture decisions and patterns
-- **DEPLOYMENT.md** - Production deployment guide
-- **TROUBLESHOOTING.md** - Common issues and solutions
-- **HTTP_ENDPOINTS.md** - API endpoint documentation
-- **alerts/** - Pre-configured Prometheus alert rules with runbooks
-- **dashboards/** - Pre-built Grafana dashboard (tado-exporter.json)
 
 ### Pre-Built Monitoring Resources
 
-**🎯 Prometheus Alerts** (`alerts/tado-exporter.yml`)
-- Critical: TadoExporterDown, AuthenticationInvalid, HighScrapingErrorRate
-- Warning: AuthenticationFailures, HighScrapeLatency, CircuitBreakerOpen
-- Complete with runbook links and annotations
-- See `alerts/README.md` and `alerts/RUNBOOK.md` for setup and troubleshooting
-
-**📊 Grafana Dashboard** (`dashboards/tado-exporter.json`)
+**📊 Grafana Dashboard** (`docs/examples/dashboards/tado-exporter.json`)
 - Comprehensive monitoring: authentication status, temperatures, humidity, heating power
 - 24-hour trends with mean/max/min aggregations
 - Exporter health panels (scrape duration, errors, latency)
 - Weather data (outside temp, solar intensity, presence)
-- Import via Grafana UI or API - see `dashboards/README.md`
+- Import via Grafana UI or API - see `docs/examples/dashboards/README.md`
 
 ### External Links
 
@@ -983,8 +971,7 @@ make clean         # Remove build artifacts
 **Operations:**
 - `Makefile` - Development commands
 - `docker-compose.yml` - Full stack deployment
-- `alerts/tado-exporter.yml` - Prometheus alert rules
-- `dashboards/tado-exporter.json` - Grafana dashboard
+- `docs/examples/dashboards/tado-exporter.json` - Grafana dashboard
 
 ---
 
