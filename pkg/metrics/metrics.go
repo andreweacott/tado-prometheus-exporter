@@ -29,20 +29,20 @@ import (
 // MetricDescriptors holds all Prometheus metric descriptors for Tado
 type MetricDescriptors struct {
 	// Home-level metrics
-	IsResidentPresent               prometheus.Gauge
-	SolarIntensityPercentage        prometheus.Gauge
-	TemperatureOutsideCelsius       prometheus.Gauge
-	TemperatureOutsideFahrenheit    prometheus.Gauge
+	IsResidentPresent            prometheus.Gauge
+	SolarIntensityPercentage     prometheus.Gauge
+	TemperatureOutsideCelsius    prometheus.Gauge
+	TemperatureOutsideFahrenheit prometheus.Gauge
 
 	// Zone-level metrics (with labels: zone_id, zone_name, zone_type)
-	TemperatureMeasuredCelsius      prometheus.GaugeVec
-	TemperatureMeasuredFahrenheit   prometheus.GaugeVec
-	HumidityMeasuredPercentage      prometheus.GaugeVec
-	TemperatureSetCelsius           prometheus.GaugeVec
-	TemperatureSetFahrenheit        prometheus.GaugeVec
-	HeatingPowerPercentage          prometheus.GaugeVec
-	IsWindowOpen                    prometheus.GaugeVec
-	IsZonePowered                   prometheus.GaugeVec
+	TemperatureMeasuredCelsius    prometheus.GaugeVec
+	TemperatureMeasuredFahrenheit prometheus.GaugeVec
+	HumidityMeasuredPercentage    prometheus.GaugeVec
+	TemperatureSetCelsius         prometheus.GaugeVec
+	TemperatureSetFahrenheit      prometheus.GaugeVec
+	HeatingPowerPercentage        prometheus.GaugeVec
+	IsWindowOpen                  prometheus.GaugeVec
+	IsZonePowered                 prometheus.GaugeVec
 }
 
 // NewMetricDescriptors creates and registers all Prometheus metrics

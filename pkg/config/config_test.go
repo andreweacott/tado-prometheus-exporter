@@ -48,10 +48,10 @@ func TestLoad_Defaults(t *testing.T) {
 
 	cfg := LoadWithArgs([]string{})
 
-	assert.Equal(t, 9100, cfg.Port) // default port
-	assert.Equal(t, 10, cfg.ScrapeTimeout) // default timeout
-	assert.Equal(t, "info", cfg.LogLevel) // default log level
-	assert.Equal(t, "", cfg.HomeID) // optional
+	assert.Equal(t, 9100, cfg.Port)          // default port
+	assert.Equal(t, 10, cfg.ScrapeTimeout)   // default timeout
+	assert.Equal(t, "info", cfg.LogLevel)    // default log level
+	assert.Equal(t, "", cfg.HomeID)          // optional
 	assert.Equal(t, "", cfg.TokenPassphrase) // required (but empty by default)
 }
 
@@ -90,9 +90,9 @@ func TestValidate_MissingPassphrase(t *testing.T) {
 // TestValidate_InvalidPort tests validation of port range
 func TestValidate_InvalidPort(t *testing.T) {
 	tests := []struct {
-		name    string
-		port    int
-		valid   bool
+		name  string
+		port  int
+		valid bool
 	}{
 		{"valid port 1", 1, true},
 		{"valid port 9100", 9100, true},
@@ -127,9 +127,9 @@ func TestValidate_InvalidPort(t *testing.T) {
 // TestValidate_InvalidTimeout tests validation of timeout
 func TestValidate_InvalidTimeout(t *testing.T) {
 	tests := []struct {
-		name     string
-		timeout  int
-		valid    bool
+		name    string
+		timeout int
+		valid   bool
 	}{
 		{"valid timeout 1", 1, true},
 		{"valid timeout 10", 10, true},
