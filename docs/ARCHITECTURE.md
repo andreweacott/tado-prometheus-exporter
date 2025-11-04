@@ -190,6 +190,96 @@ tado_exporter_last_authentication_success_unix  # Detect stale auth
 
 ---
 
+## Metrics Validation Strategy (P2.3)
+
+### Validation Approach
+
+All metrics extracted from Tado API responses are validated against known valid ranges before recording to Prometheus. Invalid metrics are skipped with warnings logged.
+
+### Validation Ranges
+
+| Metric | Type | Min | Max | Unit | Rationale |
+|--------|------|-----|-----|------|-----------|
+| Temperature (Celsius) | float32 | -50 | 60 | °C | Typical building range |
+| Temperature (Fahrenheit) | float32 | -58 | 140 | °F | Converted from Celsius |
+| Humidity | float32 | 0 | 100 | % | Relative humidity definition |
+| Heating Power | float32 | 0 | 100 | % | Percentage output range |
+
+### Implementation
+
+**Extraction Helpers** (`pkg/collector/zone_metrics.go`):
+```go
+func extractZoneTemperature(zoneState *tado.ZoneState) (*float32, *float32)
+func extractZoneHumidity(zoneState *tado.ZoneState) *float32
+func extractHeatingPower(zoneState *tado.ZoneState) *float32
+```
+
+**Validation Functions**:
+```go
+func validateTemperature(temp float32, fieldName string) error
+func validateHumidity(humidity float32, fieldName string) error
+func validatePower(power float32, fieldName string) error
+func ValidateZoneMetrics(metrics *ZoneMetrics) []error
+```
+
+**Integration in Collection** (`pkg/collector/collector.go`):
+```go
+// Extract metrics
+metrics := ExtractAllZoneMetrics(&zoneState)
+
+// Validate metrics
+validationErrors := ValidateZoneMetrics(metrics)
+for _, err := range validationErrors {
+    log.Warn("Validation failed", "error", err.Error())
+}
+
+// Record only valid metrics
+if err := validateTemperature(temp, "measured"); err != nil {
+    log.Warn("Skipping invalid temperature", "value", temp)
+} else {
+    recordMetric(temp)
+}
+```
+
+### Error Handling
+
+- **Invalid values are skipped** (not recorded to Prometheus)
+- **Warnings logged** with context (home_id, zone_id, field_name, value, reason)
+- **Collection continues** for other metrics even if one fails (graceful degradation)
+- **No metrics available** → no gauge update (Prometheus uses last-known value)
+
+### Benefits
+
+1. **Data Quality**: Prevents invalid data from corrupting Prometheus time-series
+2. **Early Detection**: Logs highlight potential API or sensor issues
+3. **Diagnostics**: Operators can see which metrics are failing validation
+4. **Backwards Compatible**: Only affects invalid readings (normal readings unaffected)
+5. **Edge Case Safety**: Handles nil pointers, out-of-range values, malformed responses
+
+### Testing
+
+**Validation Tests** (`pkg/collector/zone_metrics_test.go`):
+- Boundary condition tests (min/max valid values)
+- Out-of-range tests (too hot, too cold, etc.)
+- Nil pointer handling
+- Multiple validation errors
+- Error message formatting
+
+**Example**:
+```go
+type validationTest struct {
+    name    string
+    temp    float32
+    wantErr bool
+}
+
+{name: "too cold", temp: -51, wantErr: true},
+{name: "valid temp", temp: 20.5, wantErr: false},
+{name: "too hot", temp: 61, wantErr: true},
+```
+
+---
+
 ## Observability
 
 ### Exporter Health Metrics (P2.1)

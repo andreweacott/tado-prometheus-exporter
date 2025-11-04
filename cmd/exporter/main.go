@@ -81,6 +81,11 @@ func initializeAuth(ctx context.Context, cfg *config.Config, log *logger.Logger)
 	// Wrap the client in the adapter to implement TadoAPI interface
 	tadoClient := collector.NewTadoClientAdapter(tadoClientRaw)
 
+	// Wrap with circuit breaker for resilience
+	cbConfig := collector.DefaultCircuitBreakerConfig()
+	tadoClient = collector.NewTadoAPIWithCircuitBreaker(tadoClient, cbConfig)
+	log.Info("Circuit breaker enabled", "max_failures", cbConfig.MaxConsecutiveFailures, "timeout", cbConfig.Timeout)
+
 	scrapeTimeout := time.Duration(cfg.ScrapeTimeout) * time.Second
 	tadoCollector := collector.NewTadoCollectorWithLogger(tadoClient, metricDescs, scrapeTimeout, cfg.HomeID, log)
 

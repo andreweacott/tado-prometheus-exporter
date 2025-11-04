@@ -14,6 +14,13 @@
 
 **Architecture Philosophy:** Simple, fault-tolerant, observable. The system continues collecting partial metrics even when some API calls fail—crucial for production monitoring.
 
+**Key Architectural Patterns:**
+1. **Circuit Breaker** - Protects against API failures with automatic recovery
+2. **Graceful Degradation** - Collects partial metrics when some API calls fail
+3. **Metric Validation** - Validates data quality before recording to Prometheus
+4. **Zero-Config Auth** - OAuth device code flow with encrypted token storage
+5. **Self-Monitoring** - Exposes exporter health metrics for observability
+
 ---
 
 ## Getting Started
@@ -97,7 +104,7 @@ make clean
 |---------|--------------|-----------|----------------|
 | `cmd/exporter` | Application entry point, server lifecycle | `main.go`, `server.go` | Where execution starts; orchestrates everything |
 | `pkg/auth` | OAuth2 device code flow, token encryption | `authenticator.go` | The "magic" that enables zero-config auth |
-| `pkg/collector` | Implements Prometheus collector interface | `collector.go` | Heart of metrics collection; implements graceful degradation |
+| `pkg/collector` | Implements Prometheus collector interface | `collector.go`, `circuit_breaker.go`, `zone_metrics.go` | Heart of metrics collection; implements graceful degradation + resilience |
 | `pkg/config` | CLI flags + env vars with precedence | `config.go` | Precedence: CLI > env > defaults |
 | `pkg/logger` | Structured logging (logrus wrapper) | `logger.go` | Adds context fields like home_id, zone_id |
 | `pkg/metrics` | Metric definitions (Tado + exporter health) | `metrics.go`, `exporter_metrics.go` | Defines what we expose to Prometheus |
@@ -191,7 +198,52 @@ export TADO_PORT=8080
 
 **Why:** You can alert on `tado_exporter_authentication_valid == 0` to detect auth issues before metrics stop flowing.
 
-### 5. Test Isolation with Custom Registries
+### 5. Circuit Breaker Pattern (Resilience Against API Failures)
+
+**The Problem:** If the Tado API becomes unreliable, should we keep hammering it with requests?
+
+**The Solution:** Use a circuit breaker that "trips" after repeated failures, temporarily stops making requests, then gradually tries again.
+
+**Where it happens:** `pkg/collector/circuit_breaker.go` wraps the Tado API client
+
+**How it works:**
+- **Closed** (normal): All requests go through
+- **Open** (tripped): After 5 consecutive failures, circuit opens for 30 seconds
+- **Half-Open** (testing): After timeout, allows 1 request to test if API recovered
+
+```go
+// In main.go initialization
+cbConfig := collector.DefaultCircuitBreakerConfig()
+tadoClient = collector.NewTadoAPIWithCircuitBreaker(tadoClient, cbConfig)
+```
+
+**Configuration:**
+- `MaxConsecutiveFailures`: 5 (configurable)
+- `Timeout`: 30 seconds (how long to wait before testing recovery)
+
+**Why it matters:** Prevents cascading failures, gives the API time to recover, provides clear error messages to operators.
+
+### 6. Metric Validation (Data Quality Assurance)
+
+**The Problem:** What if the Tado API returns nonsensical values (e.g., temperature = 500°C)?
+
+**The Solution:** Validate all metrics against known valid ranges before recording to Prometheus.
+
+**Where it happens:** `pkg/collector/zone_metrics.go`
+
+**Validation Ranges:**
+- Temperature: -50°C to 60°C (typical building range)
+- Humidity: 0% to 100% (by definition)
+- Heating Power: 0% to 100% (percentage range)
+
+**Behavior on invalid data:**
+- Log a warning with context (zone_id, metric name, value, reason)
+- Skip recording that specific metric
+- Continue collecting other metrics (graceful degradation)
+
+**Why it matters:** Prevents bad data from corrupting Prometheus time-series, helps operators spot API or sensor issues early.
+
+### 7. Test Isolation with Custom Registries
 
 **The Problem:** Prometheus metrics are global singletons. Creating the same metric twice in tests causes registration conflicts.
 
@@ -250,6 +302,96 @@ registry.Register(metric)
 5. **Write a test** in `pkg/collector/collector_test.go`
 
 **Gotcha:** If you get Prometheus registration errors in tests, consider using a custom registry or skipping the test.
+
+### Add Metric Validation
+
+**Scenario:** You're adding a new metric and want to ensure data quality.
+
+**Steps:**
+
+1. **Define validation constants** in `pkg/collector/zone_metrics.go`:
+   ```go
+   const (
+       MinValidMyMetric float32 = 0
+       MaxValidMyMetric float32 = 100
+   )
+   ```
+
+2. **Create validation function**:
+   ```go
+   func validateMyMetric(value float32, fieldName string) error {
+       if value < MinValidMyMetric || value > MaxValidMyMetric {
+           return &ValidationError{
+               Field: fieldName,
+               Value: value,
+               Reason: fmt.Sprintf("outside valid range [%g, %g]", MinValidMyMetric, MaxValidMyMetric),
+           }
+       }
+       return nil
+   }
+   ```
+
+3. **Add to ZoneMetrics struct**:
+   ```go
+   type ZoneMetrics struct {
+       // ... existing fields
+       MyMetricValue *float32
+   }
+   ```
+
+4. **Extract in ExtractAllZoneMetrics**:
+   ```go
+   func ExtractAllZoneMetrics(zoneState *tado.ZoneState) *ZoneMetrics {
+       return &ZoneMetrics{
+           // ... existing fields
+           MyMetricValue: extractMyMetric(zoneState),
+       }
+   }
+   ```
+
+5. **Validate before recording** in `pkg/collector/collector.go`:
+   ```go
+   if metrics.MyMetricValue != nil {
+       if err := validateMyMetric(*metrics.MyMetricValue, "my_metric"); err != nil {
+           tc.log.Warn("Invalid metric, skipping", "error", err.Error())
+       } else {
+           tc.metricDescriptors.MyMetric.WithLabelValues(...).Set(float64(*metrics.MyMetricValue))
+       }
+   }
+   ```
+
+6. **Write validation tests** in `pkg/collector/zone_metrics_test.go`
+
+**Why validate:** Prevents bad data from corrupting Prometheus time-series, enables early detection of API/sensor issues.
+
+### Configure Circuit Breaker
+
+**Scenario:** You need to adjust circuit breaker behavior for your environment.
+
+**Default Configuration:**
+- Max failures before opening: 5
+- Open timeout: 30 seconds
+- Max requests in half-open: 1
+
+**To Change:**
+
+Edit `cmd/exporter/main.go`:
+
+```go
+cbConfig := collector.CircuitBreakerConfig{
+    MaxConsecutiveFailures: 3,  // Open after 3 failures instead of 5
+    Timeout:                60 * time.Second,  // Wait 60s before testing recovery
+}
+tadoClient = collector.NewTadoAPIWithCircuitBreaker(tadoClient, cbConfig)
+```
+
+**When to adjust:**
+- **Lower MaxFailures** (2-3): If API is critical and you want fast failure detection
+- **Higher MaxFailures** (10+): If API has occasional transient errors
+- **Longer Timeout** (60s+): If API takes time to recover
+- **Shorter Timeout** (10s): If API recovers quickly
+
+**Monitoring:** Watch logs for "circuit breaker is open" messages to tune these values.
 
 ### Run Tests
 
@@ -371,6 +513,7 @@ docker-compose logs -f exporter
 | `clambin/tado/v2` | v2.6.2 | Tado API client | OAuth2 device code flow + auto token refresh + encrypted storage |
 | `prometheus/client_golang` | v1.23.2 | Prometheus client library | Official Prometheus library |
 | `sirupsen/logrus` | v1.9.3 | Structured logging | Industry standard, simple structured logging |
+| `sony/gobreaker` | v1.0.0 | Circuit breaker | Resilience pattern for API failures |
 | `stretchr/testify` | v1.11.1 | Test assertions | Makes tests readable with assert/require |
 | `golang.org/x/oauth2` | v0.32.0 | OAuth2 client | Required by clambin/tado |
 
@@ -485,6 +628,22 @@ for _, tt := range tests {
 
 **When to reconsider:** If you have many homes (10+) and scrapes are too slow.
 
+**5. Circuit Breaker for API Resilience**
+
+**Why:** Protects against cascading failures when Tado API becomes unreliable. Gives the API time to recover instead of hammering it with requests.
+
+**Trade-off:** Some scrapes will fail completely when circuit is open, but this prevents worse outcomes (prolonged outages, rate limiting, resource exhaustion).
+
+**Implementation:** Wraps all API calls with `sony/gobreaker` library. Transparent to collector logic.
+
+**6. Metric Validation at Collection Time**
+
+**Why:** Better to catch bad data early than to corrupt Prometheus time-series. Also helps operators spot sensor/API issues.
+
+**Trade-off:** Slight performance overhead for validation checks, but negligible compared to API latency.
+
+**Implementation:** Extract → Validate → Record. Invalid metrics are skipped with warnings logged.
+
 ### Non-Obvious Behavior
 
 **1. Token Path Default Depends on HOME**
@@ -517,21 +676,33 @@ If no valid token exists, the exporter blocks on authentication (waiting for use
 
 **Why it matters:** First startup in automation (CI, Kubernetes) will hang until you authenticate. Pre-authenticate before deploying.
 
+**6. Circuit Breaker State is Not Persisted**
+
+The circuit breaker resets to "closed" on exporter restart, even if it was open before.
+
+**Why it matters:** Restarting the exporter will bypass the circuit breaker protection temporarily. Don't restart the exporter as a "fix" for circuit breaker issues—you'll just hit the same failures again.
+
+**Better approach:** Wait for the circuit to self-heal, or fix the underlying API issue.
+
 ### Modern vs Legacy Patterns
 
 **Current (Modern) Patterns:**
 - OAuth2 device code flow (no pre-registered app)
+- Circuit breaker for API resilience
+- Metric validation before recording
 - Graceful degradation on errors
 - Structured logging with context
 - Self-monitoring (exporter health metrics)
 - Multi-stage Docker builds
 - Table-driven tests
+- Separation of concerns (extraction vs validation in zone_metrics.go)
 
 **What to Avoid:**
 - Hard-coded credentials (always use env vars or CLI flags)
 - Panicking on errors (use proper error handling)
 - Global variables (except for metrics, which are Prometheus convention)
 - Unmarshaled JSON maps (use the library's typed structs)
+- Recording unvalidated metrics to Prometheus
 
 ---
 
@@ -613,6 +784,29 @@ curl http://localhost:9100/metrics | grep scrape_errors_total
 ./exporter --scrape-timeout=20  # Increase from default 10s
 ```
 
+**5. "Circuit breaker is open"**
+
+**Cause:** Tado API failed multiple times (5 consecutive failures by default)
+
+**What it means:** The exporter is temporarily stopping API requests to give the API time to recover
+
+**Fix:**
+- **Wait:** Circuit will automatically test recovery after 30 seconds
+- **Check Tado API status:** Visit Tado's status page or Twitter
+- **Check logs:** Look for underlying error messages before circuit opened
+- **Adjust threshold:** If transient errors are common, increase `MaxConsecutiveFailures`
+
+**Debug:**
+```bash
+# Check for circuit breaker errors
+./exporter --log-level=debug --token-passphrase=secret 2>&1 | grep "circuit breaker"
+
+# Common patterns in logs:
+# "circuit breaker is open" → Circuit tripped, waiting for timeout
+# "circuit breaker is half-open" → Testing if API recovered
+# "circuit breaker is closed" → Normal operation resumed
+```
+
 ### Useful Commands
 
 ```bash
@@ -673,18 +867,18 @@ cat ~/.tado-exporter/token.json
 - **Unknown:** Detailed Kubernetes manifests (Deployment, Service, ConfigMap, Secret)
 - **Next step:** Create `k8s/` directory with example manifests
 
-**6. Grafana Dashboards**
+**6. Circuit Breaker Metrics**
 
-- **Gap:** No pre-built Grafana dashboards
-- **Opportunity:** Create example dashboard JSON
-- **Next step:** Build and document a reference dashboard
+- **Gap:** Circuit breaker state not currently exposed as Prometheus metrics
+- **Opportunity:** Add `tado_exporter_circuit_breaker_state` gauge (0=closed, 1=open, 2=half-open)
+- **Next step:** Enhance circuit_breaker.go to expose state metrics
 
 ### Questions for New Contributors
 
 - Are there other Tado API endpoints we should expose?
 - Should we add a `/config` endpoint to view current configuration?
-- Would a Prometheus alert rule template be useful?
 - Should we support multiple Tado accounts in one exporter instance?
+- Should circuit breaker state be exposed as a Prometheus metric?
 
 ---
 
@@ -694,9 +888,26 @@ cat ~/.tado-exporter/token.json
 
 - **README.md** - Quick start, usage, metrics reference
 - **ARCHITECTURE.md** - Detailed architecture decisions and patterns
-- **DEPLOYMENT.md** - Production deployment guide (if present)
-- **TROUBLESHOOTING.md** - Common issues and solutions (if present)
+- **DEPLOYMENT.md** - Production deployment guide
+- **TROUBLESHOOTING.md** - Common issues and solutions
 - **HTTP_ENDPOINTS.md** - API endpoint documentation
+- **alerts/** - Pre-configured Prometheus alert rules with runbooks
+- **dashboards/** - Pre-built Grafana dashboard (tado-exporter.json)
+
+### Pre-Built Monitoring Resources
+
+**🎯 Prometheus Alerts** (`alerts/tado-exporter.yml`)
+- Critical: TadoExporterDown, AuthenticationInvalid, HighScrapingErrorRate
+- Warning: AuthenticationFailures, HighScrapeLatency, CircuitBreakerOpen
+- Complete with runbook links and annotations
+- See `alerts/README.md` and `alerts/RUNBOOK.md` for setup and troubleshooting
+
+**📊 Grafana Dashboard** (`dashboards/tado-exporter.json`)
+- Comprehensive monitoring: authentication status, temperatures, humidity, heating power
+- 24-hour trends with mean/max/min aggregations
+- Exporter health panels (scrape duration, errors, latency)
+- Weather data (outside temp, solar intensity, presence)
+- Import via Grafana UI or API - see `dashboards/README.md`
 
 ### External Links
 
@@ -704,6 +915,7 @@ cat ~/.tado-exporter/token.json
 - [Prometheus Client Library](https://prometheus.io/docs/instrumenting/clientlibs/)
 - [OAuth2 Device Code Flow](https://oauth.net/2/device-flow/)
 - [clambin/tado GitHub](https://github.com/clambin/tado)
+- [sony/gobreaker GitHub](https://github.com/sony/gobreaker)
 
 ### Getting Help
 
@@ -749,13 +961,30 @@ make clean         # Remove build artifacts
 
 ### Key Files to Know
 
-- `cmd/exporter/main.go` - Application entry point
-- `pkg/auth/authenticator.go` - OAuth2 authentication
-- `pkg/collector/collector.go` - Metrics collection logic
+**Core Application:**
+- `cmd/exporter/main.go` - Application entry point, initialization sequence
+- `cmd/exporter/server.go` - HTTP server, graceful shutdown
+
+**Authentication & API:**
+- `pkg/auth/authenticator.go` - OAuth2 device code flow
+
+**Metrics Collection:**
+- `pkg/collector/collector.go` - Main Prometheus collector, orchestration
+- `pkg/collector/circuit_breaker.go` - API resilience wrapper
+- `pkg/collector/zone_metrics.go` - Metric extraction and validation
+- `pkg/collector/interfaces.go` - TadoAPI interface definition
+
+**Configuration & Observability:**
 - `pkg/config/config.go` - Configuration management
-- `pkg/metrics/metrics.go` - Metric definitions
+- `pkg/logger/logger.go` - Structured logging
+- `pkg/metrics/metrics.go` - Tado metric definitions
+- `pkg/metrics/exporter_metrics.go` - Exporter health metrics
+
+**Operations:**
 - `Makefile` - Development commands
 - `docker-compose.yml` - Full stack deployment
+- `alerts/tado-exporter.yml` - Prometheus alert rules
+- `dashboards/tado-exporter.json` - Grafana dashboard
 
 ---
 

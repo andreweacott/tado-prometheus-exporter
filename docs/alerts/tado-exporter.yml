@@ -1,0 +1,131 @@
+groups:
+  - name: tado-exporter
+    interval: 30s
+    rules:
+      # Exporter Availability Alerts
+      - alert: TadoExporterDown
+        expr: up{job="tado-exporter"} == 0
+        for: 2m
+        labels:
+          severity: critical
+          component: exporter
+        annotations:
+          summary: "Tado exporter is down"
+          description: "Tado exporter has been unreachable for 2 minutes. Check container/pod status and logs."
+          runbook: "https://github.com/andreweacott/tado-prometheus-exporter/blob/main/alerts/RUNBOOK.md#tadoexporterdown"
+
+      # Authentication Alerts
+      - alert: TadoExporterAuthenticationInvalid
+        expr: tado_exporter_authentication_valid == 0
+        for: 5m
+        labels:
+          severity: critical
+          component: authentication
+        annotations:
+          summary: "Tado exporter authentication is invalid"
+          description: "Tado API authentication has been invalid for 5 minutes. Token may be expired or credentials invalid."
+          runbook: "https://github.com/andreweacott/tado-prometheus-exporter/blob/main/alerts/RUNBOOK.md#tadoexporterauthenticationinvalid"
+
+      - alert: TadoExporterAuthenticationFailures
+        expr: increase(tado_exporter_authentication_errors_total[5m]) > 0
+        for: 5m
+        labels:
+          severity: warning
+          component: authentication
+        annotations:
+          summary: "Tado exporter authentication failures detected"
+          description: "Authentication errors have occurred in the last 5 minutes. This may indicate rate limiting or temporary API issues."
+          runbook: "https://github.com/andreweacott/tado-prometheus-exporter/blob/main/alerts/RUNBOOK.md#tadoexporterauthenticationfailures"
+
+      - alert: TadoExporterAuthenticationStale
+        expr: (time() - tado_exporter_last_authentication_success_unix) > 3600
+        for: 10m
+        labels:
+          severity: warning
+          component: authentication
+        annotations:
+          summary: "Tado exporter last authentication is stale"
+          description: "No successful authentication for {{ $value | humanizeDuration }}. Check if the exporter is running and can reach the API."
+          runbook: "https://github.com/andreweacott/tado-prometheus-exporter/blob/main/alerts/RUNBOOK.md#tadoexporterauthenticationstale"
+
+      # Metric Collection Alerts
+      - alert: TadoExporterHighScrapeLatency
+        expr: histogram_quantile(0.95, tado_exporter_scrape_duration_seconds) > 5
+        for: 10m
+        labels:
+          severity: warning
+          component: performance
+        annotations:
+          summary: "Tado exporter metric collection is slow"
+          description: "P95 metric collection latency is {{ $value | humanizeDuration }}s (threshold: 5s). API may be slow or network issues present."
+          runbook: "https://github.com/andreweacott/tado-prometheus-exporter/blob/main/alerts/RUNBOOK.md#tadoexporterhighscapelatency"
+
+      - alert: TadoExporterScrapingErrors
+        expr: increase(tado_exporter_scrape_errors_total[5m]) > 0
+        for: 5m
+        labels:
+          severity: warning
+          component: collection
+        annotations:
+          summary: "Tado exporter metric collection failures"
+          description: "Metric collection failures occurred in the last 5 minutes. Some metrics may not be available. Check logs for details."
+          runbook: "https://github.com/andreweacott/tado-prometheus-exporter/blob/main/alerts/RUNBOOK.md#tadoexporterscrapingerrors"
+
+      - alert: TadoExporterHighScrapingErrorRate
+        expr: rate(tado_exporter_scrape_errors_total[5m]) > 0.1
+        for: 10m
+        labels:
+          severity: critical
+          component: collection
+        annotations:
+          summary: "Tado exporter metric collection error rate is high"
+          description: "Error rate is {{ $value | humanizePercentage }} (threshold: 10%). Most metric collections are failing."
+          runbook: "https://github.com/andreweacott/tado-prometheus-exporter/blob/main/alerts/RUNBOOK.md#tadoexporterhighscrapingerrorrate"
+
+      # Data Quality Alerts
+      - alert: TadoExporterMissingMetrics
+        expr: count(tado_temperature_measured_celsius) == 0
+        for: 10m
+        labels:
+          severity: warning
+          component: data-quality
+        annotations:
+          summary: "Tado exporter is not producing temperature metrics"
+          description: "No temperature metrics available. Check if exporter is collecting data and zones are configured."
+          runbook: "https://github.com/andreweacott/tado-prometheus-exporter/blob/main/alerts/RUNBOOK.md#tadoexportermissingmetrics"
+
+      # API Connectivity Alerts
+      - alert: TadoAPIUnreachable
+        expr: rate(tado_exporter_scrape_errors_total[5m]) > 0.5
+        for: 5m
+        labels:
+          severity: critical
+          component: api-connectivity
+        annotations:
+          summary: "Tado API appears to be unreachable"
+          description: "More than 50% of metric collection attempts are failing. Check network connectivity and API status."
+          runbook: "https://github.com/andreweacott/tado-prometheus-exporter/blob/main/alerts/RUNBOOK.md#tadoapiunreachable"
+
+      # Circuit Breaker Alerts (if circuit breaker pattern is implemented)
+      - alert: TadoExporterCircuitBreakerOpen
+        expr: tado_exporter_circuit_breaker_state == 1
+        for: 1m
+        labels:
+          severity: warning
+          component: resilience
+        annotations:
+          summary: "Tado exporter circuit breaker is open"
+          description: "Circuit breaker is open due to repeated API failures. Requests are being blocked to prevent cascading failures."
+          runbook: "https://github.com/andreweacott/tado-prometheus-exporter/blob/main/alerts/RUNBOOK.md#tadoexportercircuitbreakeropen"
+
+      # Prometheus Recorder Rules (for efficient querying)
+      - alert: TadoExporterAverageScrapeDuration
+        expr: avg(rate(tado_exporter_scrape_duration_seconds_sum[5m])) > 2
+        for: 5m
+        labels:
+          severity: info
+          component: performance
+        annotations:
+          summary: "Tado exporter average metric collection time is increasing"
+          description: "Average collection time is {{ $value | humanizeDuration }}s. Monitor for trends."
+          runbook: "https://github.com/andreweacott/tado-prometheus-exporter/blob/main/alerts/RUNBOOK.md#tadoexporteravegeragescrapeduration"

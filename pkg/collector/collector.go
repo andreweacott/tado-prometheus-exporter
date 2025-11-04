@@ -349,11 +349,24 @@ func (tc *TadoCollector) collectSingleZoneMetrics(homeIDStr string, zone tado.Zo
 	// Extract all metrics from zone state
 	metrics := ExtractAllZoneMetrics(&zoneState)
 
+	// Validate extracted metrics
+	validationErrors := ValidateZoneMetrics(metrics)
+	if len(validationErrors) > 0 {
+		for _, err := range validationErrors {
+			tc.log.WithField("zone_id", zoneIDStr).Warn("Zone metric validation failed", "error", err.Error())
+		}
+	}
+
 	// Record measured temperature (Celsius)
 	if metrics.MeasuredTemperatureCelsius != nil {
-		tc.metricDescriptors.TemperatureMeasuredCelsius.WithLabelValues(
-			homeIDStr, zoneIDStr, *zoneName, zoneType,
-		).Set(float64(*metrics.MeasuredTemperatureCelsius))
+		// Validate temperature before recording
+		if err := validateTemperature(*metrics.MeasuredTemperatureCelsius, "measured_temperature_celsius"); err != nil {
+			tc.log.WithField("zone_id", zoneIDStr).Warn("Invalid measured temperature, skipping metric", "value", *metrics.MeasuredTemperatureCelsius, "error", err.Error())
+		} else {
+			tc.metricDescriptors.TemperatureMeasuredCelsius.WithLabelValues(
+				homeIDStr, zoneIDStr, *zoneName, zoneType,
+			).Set(float64(*metrics.MeasuredTemperatureCelsius))
+		}
 	}
 
 	// Record measured temperature (Fahrenheit)
@@ -365,16 +378,26 @@ func (tc *TadoCollector) collectSingleZoneMetrics(homeIDStr string, zone tado.Zo
 
 	// Record measured humidity
 	if metrics.MeasuredHumidity != nil {
-		tc.metricDescriptors.HumidityMeasuredPercentage.WithLabelValues(
-			homeIDStr, zoneIDStr, *zoneName, zoneType,
-		).Set(float64(*metrics.MeasuredHumidity))
+		// Validate humidity before recording
+		if err := validateHumidity(*metrics.MeasuredHumidity, "measured_humidity"); err != nil {
+			tc.log.WithField("zone_id", zoneIDStr).Warn("Invalid measured humidity, skipping metric", "value", *metrics.MeasuredHumidity, "error", err.Error())
+		} else {
+			tc.metricDescriptors.HumidityMeasuredPercentage.WithLabelValues(
+				homeIDStr, zoneIDStr, *zoneName, zoneType,
+			).Set(float64(*metrics.MeasuredHumidity))
+		}
 	}
 
 	// Record target temperature (Celsius)
 	if metrics.TargetTemperatureCelsius != nil {
-		tc.metricDescriptors.TemperatureSetCelsius.WithLabelValues(
-			homeIDStr, zoneIDStr, *zoneName, zoneType,
-		).Set(float64(*metrics.TargetTemperatureCelsius))
+		// Validate target temperature before recording
+		if err := validateTemperature(*metrics.TargetTemperatureCelsius, "target_temperature_celsius"); err != nil {
+			tc.log.WithField("zone_id", zoneIDStr).Warn("Invalid target temperature, skipping metric", "value", *metrics.TargetTemperatureCelsius, "error", err.Error())
+		} else {
+			tc.metricDescriptors.TemperatureSetCelsius.WithLabelValues(
+				homeIDStr, zoneIDStr, *zoneName, zoneType,
+			).Set(float64(*metrics.TargetTemperatureCelsius))
+		}
 	}
 
 	// Record target temperature (Fahrenheit)
@@ -386,9 +409,14 @@ func (tc *TadoCollector) collectSingleZoneMetrics(homeIDStr string, zone tado.Zo
 
 	// Record heating power
 	if metrics.HeatingPowerPercentage != nil {
-		tc.metricDescriptors.HeatingPowerPercentage.WithLabelValues(
-			homeIDStr, zoneIDStr, *zoneName, zoneType,
-		).Set(float64(*metrics.HeatingPowerPercentage))
+		// Validate heating power before recording
+		if err := validatePower(*metrics.HeatingPowerPercentage, "heating_power"); err != nil {
+			tc.log.WithField("zone_id", zoneIDStr).Warn("Invalid heating power, skipping metric", "value", *metrics.HeatingPowerPercentage, "error", err.Error())
+		} else {
+			tc.metricDescriptors.HeatingPowerPercentage.WithLabelValues(
+				homeIDStr, zoneIDStr, *zoneName, zoneType,
+			).Set(float64(*metrics.HeatingPowerPercentage))
+		}
 	}
 
 	// Record window status (1 = open, 0 = closed)
