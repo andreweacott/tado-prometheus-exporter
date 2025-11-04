@@ -1,11 +1,13 @@
 # tado-prometheus-exporter
 
-A Prometheus exporter for [Tado](https://www.tado.com/) heating systems, written in Go. Features OAuth 2.0 device code grant authentication with persistent token refresh—enabling unattended operation without user interaction.
+A Prometheus exporter for [Tado](https://www.tado.com/) heating systems, written in Go. Features OAuth 2.0 device code grant authentication with encrypted token storage—enabling unattended operation without user interaction, with no upfront OAuth app registration required.
 
 ## Features
 
-- **OAuth 2.0 Device Code Grant**: Secure authentication without requiring user credentials to be stored
-- **Persistent Token Storage**: Automatic token refresh for long-running, unattended operation
+- **OAuth 2.0 Device Code Grant**: Automatic, zero-config authentication with encrypted token storage
+- **No App Registration Required**: Uses device code OAuth flow—just provide a passphrase for token encryption
+- **Encrypted Token Storage**: Tokens stored securely on disk with user-provided passphrase
+- **Automatic Token Refresh**: Long-running unattended operation without user interaction
 - **On-Demand Metrics**: Metrics fetched only when Prometheus scrapes the `/metrics` endpoint
 - **Comprehensive Metrics**: Home-level and zone-level temperature, humidity, heating power, and window status
 - **Docker Support**: Multi-stage build with minimal final image size
@@ -18,7 +20,7 @@ A Prometheus exporter for [Tado](https://www.tado.com/) heating systems, written
 
 - Go 1.23+ (for development)
 - Docker (for containerized deployment)
-- Tado API credentials (OAuth Client ID and Secret)
+- A secure passphrase for token encryption (any string you choose)
 
 ### Installation
 
@@ -27,12 +29,12 @@ A Prometheus exporter for [Tado](https://www.tado.com/) heating systems, written
 ```bash
 docker run -v tado-tokens:/root/.tado-exporter \
   -p 9100:9100 \
-  -e TADO_CLIENT_ID=<your_client_id> \
-  -e TADO_CLIENT_SECRET=<your_client_secret> \
+  -e TADO_TOKEN_PASSPHRASE=<your_secure_passphrase> \
   ghcr.io/andreweacott/tado-prometheus-exporter:latest \
-  --client-id=<your_client_id> \
-  --client-secret=<your_client_secret>
+  --token-passphrase=<your_secure_passphrase>
 ```
+
+On first run, you'll be prompted to authenticate with your Tado account via device code flow (visit the provided URL in your browser).
 
 #### From Source
 
@@ -40,44 +42,65 @@ docker run -v tado-tokens:/root/.tado-exporter \
 git clone https://github.com/andreweacott/tado-prometheus-exporter.git
 cd tado-prometheus-exporter
 go build -o exporter ./cmd/exporter
-./exporter --client-id=<your_client_id> --client-secret=<your_client_secret>
+./exporter --token-passphrase=<your_secure_passphrase>
 ```
+
+On first run, the exporter will guide you through device code authentication. After that, it will reuse the encrypted token for subsequent runs.
 
 ## Configuration
 
 ### Command-Line Flags
 
 ```
---client-id string
-    OAuth 2.0 Client ID (required for initial authentication)
+--token-passphrase string
+    Passphrase to encrypt/decrypt Tado token (required)
 
---client-secret string
-    OAuth 2.0 Client Secret (required for initial authentication)
+--token-path string
+    Path to encrypted token file (default: ~/.tado-exporter/token.json)
 
 --port int
     HTTP server listen port (default: 9100)
-
---token-path string
-    Path to token file for persistent storage (default: ~/.tado-exporter/token.json)
 
 --home-id string
     Tado Home ID (optional, auto-detect if not provided)
 
 --scrape-timeout int
-    Maximum time in seconds to wait for API response (default: 10)
+    Maximum time in seconds to wait for metrics collection (default: 10)
 
 --log-level string
     Logging verbosity: debug, info, warn, error (default: info)
 ```
 
-### Initial Authentication
+### Environment Variables
 
-On first run, if no valid token exists, the exporter will initiate the OAuth 2.0 device code flow:
+All configuration can be set via environment variables:
 
-1. A code will be displayed on the console
-2. Visit the provided URL and authenticate with your Tado account
-3. Enter the code when prompted
-4. Token will be saved to the token file for future use
+```
+TADO_TOKEN_PASSPHRASE      # Token passphrase (required)
+TADO_TOKEN_PATH            # Path to token file
+TADO_PORT                  # HTTP server port
+TADO_HOME_ID               # Tado home ID
+TADO_SCRAPE_TIMEOUT        # Metrics collection timeout
+```
+
+### First-Run Authentication
+
+On first run, the exporter will automatically initiate OAuth 2.0 device code authentication:
+
+1. You'll see a message with a verification URL and code
+2. Visit the URL in your web browser
+3. Authorize the application with your Tado account
+4. Token will be encrypted with your passphrase and saved for future use
+
+**Example:**
+```
+No token found. Visit this link to authenticate:
+https://my.tado.com/oauth/authorize?code=XXXX&device_code=YYYY
+
+Successfully authenticated. Token stored at: ~/.tado-exporter/token.json (encrypted with passphrase)
+```
+
+On subsequent runs, the exporter loads the encrypted token automatically (no re-authentication needed).
 
 ## Endpoints
 
@@ -146,9 +169,10 @@ services:
       - "9100:9100"
     volumes:
       - tado-tokens:/root/.tado-exporter
+    environment:
+      TADO_TOKEN_PASSPHRASE: ${TADO_TOKEN_PASSPHRASE}
     command:
-      - --client-id=${TADO_CLIENT_ID}
-      - --client-secret=${TADO_CLIENT_SECRET}
+      - --token-passphrase=${TADO_TOKEN_PASSPHRASE}
       - --port=9100
 
   prometheus:
@@ -162,6 +186,16 @@ services:
 
 volumes:
   tado-tokens:
+```
+
+Create a `.env` file with your token passphrase:
+```bash
+TADO_TOKEN_PASSPHRASE=your_secure_passphrase_here
+```
+
+Then run:
+```bash
+docker-compose up
 ```
 
 ### Prometheus Configuration
@@ -178,26 +212,40 @@ scrape_configs:
 
 ## Security
 
-- **OAuth Tokens**: Stored in a protected file (`~/.tado-exporter/token.json`)
-- **In Docker**: Use persistent volumes to protect token storage
-- **Never commit**: OAuth credentials to version control
-- **Environment Variables**: Use Docker secrets or environment variable injection in production
+- **Encrypted Tokens**: Tokens are encrypted with your passphrase and stored in `~/.tado-exporter/token.json`
+- **File Permissions**: Token file is created with restrictive permissions (owner read/write only)
+- **Passphrase Protection**: Choose a strong passphrase—it's the key to your encrypted token
+- **In Docker**: Use Docker secrets or `.env` files (not committed to git) for passphrase management
+- **Environment Variables**: Pass `TADO_TOKEN_PASSPHRASE` via Docker secrets, not in compose files
+- **Never commit**: Token files or passphrases to version control
+- **Network**: The exporter communicates with Tado API over HTTPS. Consider using a reverse proxy with authentication if exposing metrics externally.
 
 ## Troubleshooting
 
 ### Authentication Issues
 
-- Verify OAuth credentials are correct
-- Check network connectivity to Tado API
-- Ensure token file location is writable
-- Review logs: `--log-level=debug`
+- **No token prompt on first run**: Check that you're running the exporter with `--token-passphrase` and internet connectivity
+- **"Failed to create OAuth2 client"**: Verify your passphrase is correct and token file location is writable
+- **Token file permission denied**: Ensure the directory `~/.tado-exporter/` has correct permissions
+- **Device code expired**: You have 5 minutes to complete authentication. Check your network connection and try again
+- **Review logs**: Run with `--log-level=debug` for detailed diagnostics
 
 ### Metric Collection Issues
 
-- Verify Home ID is correct (or omit to auto-detect)
-- Check network connectivity
-- Review scrape timeout settings
-- Check Prometheus logs for scrape errors
+- **No metrics returned**: Verify Home ID is correct (or omit to auto-detect)
+- **Timeout errors**: Increase `--scrape-timeout` if your network is slow
+- **Connection refused**: Ensure the exporter port (default 9100) is not in use
+- **Check Prometheus**: Review Prometheus logs for scrape errors: `curl http://localhost:9100/metrics`
+
+### Docker Issues
+
+- **Container exits immediately**: Check logs with `docker logs <container-id>`
+- **Token file not persisting**: Ensure volume is mounted correctly: `-v tado-tokens:/root/.tado-exporter`
+- **Passphrase not passed correctly**: Use environment variables or `.env` files, not hardcoded in compose files
+
+### Additional Help
+
+See [HTTP_ENDPOINTS.md](HTTP_ENDPOINTS.md) for detailed endpoint documentation.
 
 ## Architecture
 
