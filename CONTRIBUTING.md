@@ -40,7 +40,7 @@ Use imperative mood and be descriptive:
 ## Development Setup
 
 ### Prerequisites
-- **Go 1.23+** (1.25+ recommended, see go.mod)
+- **Go 1.24+** (required, see go.mod)
 - **Make** (optional but recommended)
 - **golangci-lint** (for linting checks)
 

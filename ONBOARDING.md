@@ -27,7 +27,7 @@
 
 ### Prerequisites
 
-- **Go 1.23+** (note: go.mod specifies 1.25.1, but 1.23+ should work)
+- **Go 1.24+** (note: go.mod specifies 1.24)
 - **Docker** (optional, for containerized deployment)
 - **A Tado account**
 
@@ -464,7 +464,7 @@ make docker-run TOKEN_PASSPHRASE=your-secret
 ```
 
 **Dockerfile Details:**
-- Multi-stage build (golang:1.25 builder → alpine:latest runtime)
+- Multi-stage build (golang:1.24 builder → alpine:latest runtime)
 - Binary is statically linked (CGO_ENABLED=0)
 - Includes CA certificates for HTTPS
 - Health check on /health endpoint
