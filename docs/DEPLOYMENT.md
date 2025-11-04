@@ -29,7 +29,7 @@ Complete deployment guide for tado-prometheus-exporter, covering standalone, Doc
 ```bash
 git clone https://github.com/andreweacott/tado-prometheus-exporter.git
 cd tado-prometheus-exporter
-go build -o exporter ./cmd/exporter
+go build -o tado-exporter ./cmd/exporter
 ```
 
 #### Option 2: Download Pre-built Binary
@@ -55,9 +55,9 @@ chmod +x tado-prometheus-exporter
 
 3. **Run the exporter:**
    ```bash
-   ./exporter --token-path ~/.tado-exporter/token.json \
-              --token-passphrase "$TADO_TOKEN_PASSPHRASE" \
-              --port 9100
+   ./tado-exporter --token-path ~/.tado-exporter/token.json \
+                   --token-passphrase "$TADO_TOKEN_PASSPHRASE" \
+                   --port 9100
    ```
 
 4. **First run - Device Code Flow:**
@@ -69,7 +69,7 @@ chmod +x tado-prometheus-exporter
 ### Usage
 
 ```bash
-./exporter [FLAGS]
+./tado-exporter [FLAGS]
 
 Flags:
   --port               HTTP server port (default: 9100)
@@ -531,7 +531,7 @@ WantedBy=multi-user.target
 sudo useradd --system --no-create-home tado-exporter
 
 # Copy binary
-sudo cp exporter /usr/local/bin/tado-prometheus-exporter
+sudo cp tado-exporter /usr/local/bin/tado-prometheus-exporter
 sudo chmod +x /usr/local/bin/tado-prometheus-exporter
 
 # Create data directory

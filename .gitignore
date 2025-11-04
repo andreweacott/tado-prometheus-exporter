@@ -27,6 +27,7 @@ vendor/
 .DS_Store
 
 # Build output
+/tado-exporter
 /exporter
 /bin/
 cmd/exporter/exporter

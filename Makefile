@@ -3,8 +3,8 @@
 # Variables
 GO := go
 GOFLAGS := -v
-BINARY_NAME := exporter
-BINARY_PATH := ./cmd/exporter/$(BINARY_NAME)
+BINARY_NAME := tado-exporter
+BINARY_PATH := ./$(BINARY_NAME)
 DOCKER_IMAGE := tado-prometheus-exporter
 DOCKER_TAG := latest
 PORT ?= 9100

@@ -13,7 +13,7 @@ RUN go mod download
 COPY . .
 
 # Build binary
-RUN CGO_ENABLED=0 GOOS=linux go build -o exporter ./cmd/exporter
+RUN CGO_ENABLED=0 GOOS=linux go build -o tado-exporter ./cmd/exporter
 
 # Final stage
 FROM alpine:latest
@@ -29,10 +29,10 @@ RUN addgroup -g 1000 -S exporter && \
     chown -R exporter:exporter /home/exporter
 
 # Copy binary from builder
-COPY --from=builder --chown=exporter:exporter /app/exporter /usr/local/bin/exporter
+COPY --from=builder --chown=exporter:exporter /app/tado-exporter /usr/local/bin/tado-exporter
 
 # Verify binary has correct permissions
-RUN chmod 755 /usr/local/bin/exporter
+RUN chmod 755 /usr/local/bin/tado-exporter
 
 # Switch to non-root user
 USER exporter
@@ -45,4 +45,4 @@ HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
   CMD wget --no-verbose --tries=1 --spider http://localhost:9100/health || exit 1
 
 # Run exporter as non-root user
-ENTRYPOINT ["/usr/local/bin/exporter"]
+ENTRYPOINT ["/usr/local/bin/tado-exporter"]

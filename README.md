@@ -41,8 +41,8 @@ On first run, you'll be prompted to authenticate with your Tado account via devi
 ```bash
 git clone https://github.com/andreweacott/tado-prometheus-exporter.git
 cd tado-prometheus-exporter
-go build -o exporter ./cmd/exporter
-./exporter --token-passphrase=<your_secure_passphrase>
+go build -o tado-exporter ./cmd/exporter
+./tado-exporter --token-passphrase=<your_secure_passphrase>
 ```
 
 On first run, the exporter will guide you through device code authentication. After that, it will reuse the encrypted token for subsequent runs.
@@ -134,7 +134,7 @@ All zone metrics are labeled with `zone_id`, `zone_name`, and `zone_type`.
 ### Build
 
 ```bash
-go build -o exporter ./cmd/exporter
+go build -o tado-exporter ./cmd/exporter
 ```
 
 ### Test
