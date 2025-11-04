@@ -94,7 +94,7 @@ make clean
 │
 ├── .github/workflows/    # CI/CD (test.yaml, build.yaml)
 ├── Dockerfile            # Multi-stage build for small images
-├── docker-compose.yml    # Full stack: exporter + Prometheus + Grafana
+├── docker-compose.yml    # LOCAL TESTING ONLY: exporter + Prometheus + Grafana
 └── Makefile             # Development commands (build, test, lint, run)
 ```
 
@@ -302,6 +302,8 @@ registry.Register(metric)
 
 5. **Write a test** in `pkg/collector/collector_test.go`
 
+6. **Document** in README.md
+
 **Gotcha:** If you get Prometheus registration errors in tests, consider using a custom registry or skipping the test.
 
 ### Add Metric Validation
@@ -455,13 +457,24 @@ go tool cover -html=coverage.out
 # Build image
 make docker-build
 
-# Run container
+# Run container (production-ready)
 make docker-run TOKEN_PASSPHRASE=your-secret
+```
 
-# Or use docker-compose (includes Prometheus + Grafana)
-cp .env.example .env
-# Edit .env and set TADO_TOKEN_PASSPHRASE
-docker-compose up -d
+**Dockerfile Details:**
+- Multi-stage build (golang:1.25 builder → alpine:latest runtime)
+- Binary is statically linked (CGO_ENABLED=0)
+- Includes CA certificates for HTTPS
+- Health check on /health endpoint
+- Final image is tiny (~10-20 MB)
+
+### Local Testing with Docker Compose
+
+For local development and testing with a complete observability stack (exporter + Prometheus + Grafana):
+
+```bash
+# Start the full local stack (LOCAL TESTING ONLY - not for production)
+TADO_TOKEN_PASSPHRASE=your-secret docker-compose up -d
 
 # View logs
 docker-compose logs -f exporter
@@ -472,12 +485,11 @@ docker-compose logs -f exporter
 # - Grafana: http://localhost:3000 (admin/admin)
 ```
 
-**Dockerfile Details:**
-- Multi-stage build (golang:1.25 builder → alpine:latest runtime)
-- Binary is statically linked (CGO_ENABLED=0)
-- Includes CA certificates for HTTPS
-- Health check on /health endpoint
-- Final image is tiny (~10-20 MB)
+**⚠️ Important:** `docker-compose.yml` is for local development and testing only. For production deployment:
+- Use standalone `docker run` or orchestration platforms (Kubernetes, Docker Swarm)
+- Set up your own Prometheus and Grafana instances separately
+- Use proper secrets management and resource constraints
+- Configure persistent storage appropriately for your environment
 
 ### Add a Configuration Option
 
@@ -501,7 +513,7 @@ docker-compose logs -f exporter
 
 4. **Write tests** in `pkg/config/config_test.go`
 
-5. **Document** in README.md and `.env.example`
+5. **Document** in README.md
 
 ---
 
@@ -970,7 +982,8 @@ make clean         # Remove build artifacts
 
 **Operations:**
 - `Makefile` - Development commands
-- `docker-compose.yml` - Full stack deployment
+- `docker-compose.yml` - Local testing stack (NOT for production)
+- `Dockerfile` - Container image for deployment
 - `docs/examples/dashboards/tado-exporter.json` - Grafana dashboard
 
 ---

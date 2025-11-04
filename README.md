@@ -37,7 +37,7 @@ docker run -d \
 docker logs tado-exporter
 ```
 
-**First run**: Visit the URL shown in `docker-compose logs exporter` to authorize with your Tado account.
+**First run**: Visit the URL shown in `docker logs tado-exporter` to authorize with your Tado account.
 
 ### Option 2: Standalone Binary
 

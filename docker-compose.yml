@@ -1,3 +1,13 @@
+# ⚠️ LOCAL TESTING ONLY - NOT FOR PRODUCTION
+#
+# This docker-compose configuration is intended for local development and testing.
+# It bundles the exporter with Prometheus and Grafana for a complete observability stack.
+#
+# For production deployment, use:
+# - Standalone Docker: docker run -e TADO_TOKEN_PASSPHRASE=... [other flags] tado-exporter
+# - Kubernetes: Deploy the exporter as a separate workload, use your own Prometheus and Grafana
+# - Docker Swarm: Use docker service create with appropriate resource constraints
+#
 version: '3.8'
 
 services:
