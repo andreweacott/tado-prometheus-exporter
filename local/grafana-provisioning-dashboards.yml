@@ -1,0 +1,15 @@
+# Grafana dashboard provisioning for local testing
+# This file tells Grafana where to find dashboard definitions
+
+apiVersion: 1
+
+providers:
+  - name: 'Tado Exporter Dashboards'
+    orgId: 1
+    folder: ''
+    type: file
+    disableDeletion: false
+    updateIntervalSeconds: 10
+    allowUiUpdates: true
+    options:
+      path: /etc/grafana/provisioning/dashboards
