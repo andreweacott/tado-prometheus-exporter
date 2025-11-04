@@ -1,6 +1,6 @@
 module github.com/andreweacott/tado-prometheus-exporter
 
-go 1.24
+go 1.24.0
 
 require (
 	github.com/clambin/tado/v2 v2.6.2
