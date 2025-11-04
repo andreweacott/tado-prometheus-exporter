@@ -16,6 +16,7 @@ import (
 
 	"github.com/andreweacott/tado-prometheus-exporter/pkg/collector"
 	"github.com/andreweacott/tado-prometheus-exporter/pkg/config"
+	"github.com/andreweacott/tado-prometheus-exporter/pkg/logger"
 	"github.com/andreweacott/tado-prometheus-exporter/pkg/metrics"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/stretchr/testify/assert"
@@ -23,9 +24,12 @@ import (
 )
 
 var (
-	metricsMutex = &sync.Mutex{}
-	testMetrics  *metrics.MetricDescriptors
-	metricsOnce  sync.Once
+	metricsMutex      = &sync.Mutex{}
+	testMetrics       *metrics.MetricDescriptors
+	metricsOnce       sync.Once
+	exporterMetricsMu = &sync.Mutex{}
+	testExporterMets  *metrics.ExporterMetrics
+	exportMetricsOnce sync.Once
 )
 
 // getTestMetrics returns the shared test metrics, creating them once
@@ -38,6 +42,24 @@ func getTestMetrics() (*metrics.MetricDescriptors, error) {
 		testMetrics, err = metrics.NewMetricDescriptors()
 	})
 	return testMetrics, err
+}
+
+// getTestExporterMetrics returns the shared test exporter metrics, creating them once
+// This avoids Prometheus duplicate registration errors in tests
+func getTestExporterMetrics() (*metrics.ExporterMetrics, error) {
+	var err error
+	exportMetricsOnce.Do(func() {
+		exporterMetricsMu.Lock()
+		defer exporterMetricsMu.Unlock()
+		testExporterMets, err = metrics.NewExporterMetrics()
+	})
+	return testExporterMets, err
+}
+
+// getTestLogger returns a logger for testing that writes to /dev/null
+func getTestLogger() *logger.Logger {
+	testLog, _ := logger.NewWithWriter("error", "text", io.Discard)
+	return testLog
 }
 
 // MockCollector is a mock implementation of prometheus.Collector for testing
@@ -110,12 +132,15 @@ func TestHealthEndpointIntegration(t *testing.T) {
 	metricDescs, err := getTestMetrics()
 	require.NoError(t, err)
 
+	exporterMetrics, err := getTestExporterMetrics()
+	require.NoError(t, err)
+
 	mockCollector := collector.NewTadoCollector(
 		nil, // nil client for testing
 		metricDescs,
 		5*time.Second,
 		"",
-	)
+	).WithExporterMetrics(exporterMetrics)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
@@ -123,7 +148,7 @@ func TestHealthEndpointIntegration(t *testing.T) {
 	// Run server in goroutine
 	done := make(chan error, 1)
 	go func() {
-		done <- StartServer(ctx, cfg, mockCollector, metricDescs)
+		done <- StartServer(ctx, cfg, mockCollector, metricDescs, getTestLogger(), exporterMetrics)
 	}()
 
 	// Give server time to start
@@ -167,12 +192,15 @@ func TestStartServerGracefulShutdown(t *testing.T) {
 	metricDescs, err := getTestMetrics()
 	require.NoError(t, err)
 
+	exporterMetrics, err := getTestExporterMetrics()
+	require.NoError(t, err)
+
 	mockCollector := collector.NewTadoCollector(
 		nil,
 		metricDescs,
 		5*time.Second,
 		"",
-	)
+	).WithExporterMetrics(exporterMetrics)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -180,7 +208,7 @@ func TestStartServerGracefulShutdown(t *testing.T) {
 	// Run server in goroutine
 	done := make(chan error, 1)
 	go func() {
-		done <- StartServer(ctx, cfg, mockCollector, metricDescs)
+		done <- StartServer(ctx, cfg, mockCollector, metricDescs, getTestLogger(), exporterMetrics)
 	}()
 
 	// Give server time to start
@@ -216,19 +244,22 @@ func TestStartServerWithTimeout(t *testing.T) {
 	metricDescs, err := getTestMetrics()
 	require.NoError(t, err)
 
+	exporterMetrics, err := getTestExporterMetrics()
+	require.NoError(t, err)
+
 	mockCollector := collector.NewTadoCollector(
 		nil,
 		metricDescs,
 		5*time.Second,
 		"",
-	)
+	).WithExporterMetrics(exporterMetrics)
 
 	// Create context with short timeout
 	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
 	defer cancel()
 
 	// Run server - should timeout and shutdown gracefully
-	err = StartServer(ctx, cfg, mockCollector, metricDescs)
+	err = StartServer(ctx, cfg, mockCollector, metricDescs, getTestLogger(), exporterMetrics)
 	assert.NoError(t, err)
 }
 
@@ -244,18 +275,21 @@ func TestStartServerBadPort(t *testing.T) {
 	metricDescs, err := getTestMetrics()
 	require.NoError(t, err)
 
+	exporterMetrics, err := getTestExporterMetrics()
+	require.NoError(t, err)
+
 	mockCollector := collector.NewTadoCollector(
 		nil,
 		metricDescs,
 		5*time.Second,
 		"",
-	)
+	).WithExporterMetrics(exporterMetrics)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
 	defer cancel()
 
 	// Server should report error on bad port
-	_ = StartServer(ctx, cfg, mockCollector, metricDescs)
+	_ = StartServer(ctx, cfg, mockCollector, metricDescs, getTestLogger(), exporterMetrics)
 	// May be error or context timeout, both acceptable for bad port scenario
 }
 
@@ -279,18 +313,21 @@ func TestStartServerPortInUse(t *testing.T) {
 	metricDescs, err := getTestMetrics()
 	require.NoError(t, err)
 
+	exporterMetrics, err := getTestExporterMetrics()
+	require.NoError(t, err)
+
 	mockCollector := collector.NewTadoCollector(
 		nil,
 		metricDescs,
 		5*time.Second,
 		"",
-	)
+	).WithExporterMetrics(exporterMetrics)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
 	defer cancel()
 
 	// Server should fail to bind to occupied port
-	_ = StartServer(ctx, cfg, mockCollector, metricDescs)
+	_ = StartServer(ctx, cfg, mockCollector, metricDescs, getTestLogger(), exporterMetrics)
 	// Should get an error (either during startup or timeout)
 	// We don't assert here because the behavior depends on timing
 }
@@ -357,12 +394,15 @@ func TestServerHeadersAndContent(t *testing.T) {
 	metricDescs, err := getTestMetrics()
 	require.NoError(t, err)
 
+	exporterMetrics, err := getTestExporterMetrics()
+	require.NoError(t, err)
+
 	mockCollector := collector.NewTadoCollector(
 		nil,
 		metricDescs,
 		5*time.Second,
 		"",
-	)
+	).WithExporterMetrics(exporterMetrics)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
@@ -370,7 +410,7 @@ func TestServerHeadersAndContent(t *testing.T) {
 	// Run server in goroutine
 	done := make(chan error, 1)
 	go func() {
-		done <- StartServer(ctx, cfg, mockCollector, metricDescs)
+		done <- StartServer(ctx, cfg, mockCollector, metricDescs, getTestLogger(), exporterMetrics)
 	}()
 
 	// Give server time to start

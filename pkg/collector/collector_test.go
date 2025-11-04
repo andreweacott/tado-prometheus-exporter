@@ -6,7 +6,6 @@ import (
 	"time"
 
 	"github.com/andreweacott/tado-prometheus-exporter/pkg/metrics"
-	"github.com/gonzolino/gotado/v2"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -43,17 +42,17 @@ func TestNewTadoCollector_TimeoutConfiguration(t *testing.T) {
 func TestPresenceValue(t *testing.T) {
 	tests := []struct {
 		name     string
-		presence gotado.Presence
+		presence string
 		expected float64
 	}{
 		{
 			name:     "Home presence",
-			presence: gotado.PresenceHome,
+			presence: "HOME",
 			expected: 1.0,
 		},
 		{
 			name:     "Away presence",
-			presence: gotado.PresenceAway,
+			presence: "AWAY",
 			expected: 0.0,
 		},
 	}
@@ -61,7 +60,7 @@ func TestPresenceValue(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			var presence float64
-			if tt.presence == gotado.PresenceHome {
+			if tt.presence == "HOME" {
 				presence = 1.0
 			} else {
 				presence = 0.0
@@ -75,17 +74,17 @@ func TestPresenceValue(t *testing.T) {
 func TestPowerValue(t *testing.T) {
 	tests := []struct {
 		name     string
-		power    gotado.Power
+		power    string
 		expected float64
 	}{
 		{
 			name:     "Power on",
-			power:    gotado.PowerOn,
+			power:    "ON",
 			expected: 1.0,
 		},
 		{
 			name:     "Power off",
-			power:    gotado.PowerOff,
+			power:    "OFF",
 			expected: 0.0,
 		},
 	}
@@ -93,7 +92,7 @@ func TestPowerValue(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			var powered float64
-			if tt.power == gotado.PowerOn {
+			if tt.power == "ON" {
 				powered = 1.0
 			} else {
 				powered = 0.0

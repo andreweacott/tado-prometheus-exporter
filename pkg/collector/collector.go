@@ -1,10 +1,23 @@
+// Package collector implements the Prometheus collector for Tado metrics.
+//
+// It provides:
+//   - Prometheus collector interface implementation
+//   - Tado API metrics fetching
+//   - Graceful error handling with partial metric collection
+//   - Exporter health metrics reporting
+//
+// The collector fetches metrics on-demand when Prometheus scrapes the /metrics
+// endpoint. It continues collecting metrics even if some API calls fail, ensuring
+// partial metrics are always available for monitoring and alerting.
 package collector
 
 import (
 	"context"
 	"fmt"
+	"io"
 	"time"
 
+	"github.com/andreweacott/tado-prometheus-exporter/pkg/logger"
 	"github.com/andreweacott/tado-prometheus-exporter/pkg/metrics"
 	"github.com/clambin/tado/v2"
 	"github.com/prometheus/client_golang/prometheus"
@@ -17,6 +30,8 @@ type TadoCollector struct {
 	metricDescriptors *metrics.MetricDescriptors
 	scrapeTimeout     time.Duration
 	homeID            string // Optional: filter to specific home
+	log               *logger.Logger
+	exporterMetrics   *metrics.ExporterMetrics // Optional: for internal health monitoring
 }
 
 // NewTadoCollector creates a new Tado metrics collector
@@ -26,12 +41,37 @@ func NewTadoCollector(
 	scrapeTimeout time.Duration,
 	homeID string,
 ) *TadoCollector {
+	return NewTadoCollectorWithLogger(tadoClient, metricDescriptors, scrapeTimeout, homeID, nil)
+}
+
+// NewTadoCollectorWithLogger creates a new Tado metrics collector with logging
+func NewTadoCollectorWithLogger(
+	tadoClient *tado.ClientWithResponses,
+	metricDescriptors *metrics.MetricDescriptors,
+	scrapeTimeout time.Duration,
+	homeID string,
+	log *logger.Logger,
+) *TadoCollector {
+	// Use noop logger if none provided
+	if log == nil {
+		noop, _ := logger.NewWithWriter("error", "text", io.Discard)
+		log = noop
+	}
+
 	return &TadoCollector{
 		tadoClient:        tadoClient,
 		metricDescriptors: metricDescriptors,
 		scrapeTimeout:     scrapeTimeout,
 		homeID:            homeID,
+		log:               log,
+		exporterMetrics:   nil, // Will be set separately if needed
 	}
+}
+
+// WithExporterMetrics adds exporter health metrics to the collector
+func (tc *TadoCollector) WithExporterMetrics(em *metrics.ExporterMetrics) *TadoCollector {
+	tc.exporterMetrics = em
+	return tc
 }
 
 // Describe sends the super-set of all possible descriptors of metrics collected by this collector
@@ -51,6 +91,16 @@ func (tc *TadoCollector) Describe(ch chan<- *prometheus.Desc) {
 	tc.metricDescriptors.HeatingPowerPercentage.Describe(ch)
 	tc.metricDescriptors.IsWindowOpen.Describe(ch)
 	tc.metricDescriptors.IsZonePowered.Describe(ch)
+
+	// Exporter health metrics if configured
+	if tc.exporterMetrics != nil {
+		tc.exporterMetrics.ScrapeDurationSeconds.Describe(ch)
+		tc.exporterMetrics.ScrapeErrorsTotal.Describe(ch)
+		tc.exporterMetrics.BuildInfo.Describe(ch)
+		tc.exporterMetrics.AuthenticationValid.Describe(ch)
+		tc.exporterMetrics.AuthenticationErrorsTotal.Describe(ch)
+		tc.exporterMetrics.LastAuthenticationSuccessUnix.Describe(ch)
+	}
 }
 
 // Collect is called by the Prometheus client when scraping /metrics
@@ -60,10 +110,26 @@ func (tc *TadoCollector) Collect(ch chan<- prometheus.Metric) {
 	ctx, cancel := context.WithTimeout(context.Background(), tc.scrapeTimeout)
 	defer cancel()
 
+	// Record scrape duration if exporter metrics are configured
+	var startTime time.Time
+	if tc.exporterMetrics != nil {
+		startTime = time.Now()
+	}
+
 	// Fetch metrics from Tado API
 	if err := tc.fetchAndCollectMetrics(ctx); err != nil {
-		fmt.Printf("Warning: failed to collect Tado metrics: %v\n", err)
+		tc.log.Warn("Failed to collect Tado metrics", "error", err.Error())
+		// Increment error counter if exporter metrics are configured
+		if tc.exporterMetrics != nil {
+			tc.exporterMetrics.IncrementScrapeErrors()
+		}
 		// Don't return - Prometheus will use last known values
+	}
+
+	// Record scrape duration if exporter metrics are configured
+	if tc.exporterMetrics != nil {
+		duration := time.Since(startTime).Seconds()
+		tc.exporterMetrics.RecordScrapeDuration(duration)
 	}
 
 	// Send collected metrics to channel
@@ -82,26 +148,54 @@ func (tc *TadoCollector) Collect(ch chan<- prometheus.Metric) {
 	tc.metricDescriptors.HeatingPowerPercentage.Collect(ch)
 	tc.metricDescriptors.IsWindowOpen.Collect(ch)
 	tc.metricDescriptors.IsZonePowered.Collect(ch)
+
+	// Send exporter health metrics to channel if configured
+	if tc.exporterMetrics != nil {
+		tc.exporterMetrics.ScrapeDurationSeconds.Collect(ch)
+		tc.exporterMetrics.ScrapeErrorsTotal.Collect(ch)
+		tc.exporterMetrics.BuildInfo.Collect(ch)
+		tc.exporterMetrics.AuthenticationValid.Collect(ch)
+		tc.exporterMetrics.AuthenticationErrorsTotal.Collect(ch)
+		tc.exporterMetrics.LastAuthenticationSuccessUnix.Collect(ch)
+	}
 }
 
 // fetchAndCollectMetrics fetches metrics from Tado API and updates metric values
+// This function continues collecting metrics even when individual API calls fail,
+// ensuring partial metrics are always available for alerting and monitoring.
 func (tc *TadoCollector) fetchAndCollectMetrics(ctx context.Context) error {
+	var collectionErrors []string
+
 	// Get current user and homes
 	meResponse, err := tc.tadoClient.GetMeWithResponse(ctx)
 	if err != nil {
-		return fmt.Errorf("failed to fetch user: %w", err)
+		errMsg := fmt.Sprintf("failed to fetch user: %v", err)
+		tc.log.Warn(errMsg)
+		if tc.exporterMetrics != nil {
+			tc.exporterMetrics.IncrementScrapeErrors()
+		}
+		// Return early if we can't even get the list of homes
+		return fmt.Errorf("unable to retrieve user information: %w", err)
 	}
 
 	if meResponse.StatusCode() != 200 || meResponse.JSON200 == nil {
+		errMsg := fmt.Sprintf("failed to fetch user: status code %d", meResponse.StatusCode())
+		tc.log.Warn(errMsg)
+		if tc.exporterMetrics != nil {
+			tc.exporterMetrics.IncrementScrapeErrors()
+		}
 		return fmt.Errorf("failed to fetch user: status code %d", meResponse.StatusCode())
 	}
 
 	user := meResponse.JSON200
 	if user.Homes == nil || len(*user.Homes) == 0 {
+		tc.log.Warn("no homes found for user account")
 		return fmt.Errorf("no homes found for user account")
 	}
 
-	// Collect metrics from each home
+	// Collect metrics from each home - continue even if one fails
+	homeCount := 0
+	homeErrorCount := 0
 	for _, userHome := range *user.Homes {
 		// Get home ID value (might be pointer)
 		homeID := userHome.Id
@@ -114,17 +208,34 @@ func (tc *TadoCollector) fetchAndCollectMetrics(ctx context.Context) error {
 			continue
 		}
 
-		// Collect home-level metrics
+		homeCount++
+		homeIDStr := fmt.Sprintf("%d", *homeID)
+
+		// Collect home-level metrics - continue if fails
 		if err := tc.collectHomeMetrics(ctx, *homeID); err != nil {
-			fmt.Printf("Warning: failed to collect home metrics for home %d: %v\n", *homeID, err)
-			// Continue collecting zone metrics even if home metrics fail
+			homeErrorCount++
+			errMsg := fmt.Sprintf("home metrics for %s: %v", homeIDStr, err)
+			tc.log.WithField("home_id", homeIDStr).Warn("Failed to collect home metrics", "error", err.Error())
+			collectionErrors = append(collectionErrors, errMsg)
+			// Continue to collect zone metrics even if home metrics fail
 		}
 
-		// Collect zone-level metrics
+		// Collect zone-level metrics - continue if fails
 		if err := tc.collectZoneMetrics(ctx, *homeID); err != nil {
-			fmt.Printf("Warning: failed to collect zone metrics for home %d: %v\n", *homeID, err)
+			errMsg := fmt.Sprintf("zone metrics for %s: %v", homeIDStr, err)
+			tc.log.WithField("home_id", homeIDStr).Warn("Failed to collect zone metrics", "error", err.Error())
+			collectionErrors = append(collectionErrors, errMsg)
 			// Continue even if zone metrics fail
 		}
+	}
+
+	// If we collected from at least some homes, consider it a partial success
+	// Log warnings about failures but don't treat as a complete failure
+	if len(collectionErrors) > 0 {
+		tc.log.Warn("Scrape completed with errors",
+			"total_homes", homeCount,
+			"homes_with_errors", homeErrorCount,
+			"error_count", len(collectionErrors))
 	}
 
 	return nil
@@ -179,7 +290,11 @@ func (tc *TadoCollector) collectHomeMetrics(ctx context.Context, homeID tado.Hom
 }
 
 // collectZoneMetrics collects zone-level metrics (temperature, humidity, heating power, window status)
+// This function continues collecting metrics for each zone even if one zone fails,
+// ensuring partial metrics are available even if some zones have errors.
 func (tc *TadoCollector) collectZoneMetrics(ctx context.Context, homeID tado.HomeId) error {
+	var collectionErrors []string
+
 	// Get all zones for this home
 	zonesResponse, err := tc.tadoClient.GetZonesWithResponse(ctx, homeID)
 	if err != nil {
@@ -204,28 +319,32 @@ func (tc *TadoCollector) collectZoneMetrics(ctx context.Context, homeID tado.Hom
 
 	zoneStates := statesResponse.JSON200
 
-	// Collect metrics for each zone
+	// Collect metrics for each zone - continue even if one fails
+	zoneCount := 0
+	zoneErrorCount := 0
+	zoneStateMapRef := zoneStates.ZoneStates
+	if zoneStateMapRef == nil {
+		return fmt.Errorf("zone states map is nil")
+	}
+	zoneStateMapDeref := *zoneStateMapRef
+
 	for _, zone := range zones {
-		// Get zone state from the map (dereference if pointer)
-		zoneStateMap := zoneStates.ZoneStates
-		if zoneStateMap == nil {
-			fmt.Printf("Warning: zone states map is nil\n")
-			return fmt.Errorf("zone states map is nil")
-		}
-
-		zoneStateMapDeref := *zoneStateMap
-
 		// Zone.Id is a pointer
 		zoneID := zone.Id
 		if zoneID == nil {
-			fmt.Printf("Warning: zone ID is nil\n")
+			tc.log.Warn("Zone ID is nil")
 			continue
 		}
 
 		zoneIDStr := fmt.Sprintf("%d", *zoneID)
+		zoneCount++
+
+		// Get zone state from the map
 		zoneState, ok := zoneStateMapDeref[zoneIDStr]
 		if !ok {
-			fmt.Printf("Warning: no zone state found for zone %s\n", zoneIDStr)
+			zoneErrorCount++
+			tc.log.WithField("zone_id", zoneIDStr).Warn("No zone state found for zone")
+			collectionErrors = append(collectionErrors, fmt.Sprintf("zone %s: state not found", zoneIDStr))
 			continue
 		}
 
@@ -304,6 +423,15 @@ func (tc *TadoCollector) collectZoneMetrics(ctx context.Context, homeID tado.Hom
 		tc.metricDescriptors.IsZonePowered.WithLabelValues(
 			homeIDStr, zoneIDStr, *zoneName, zoneType,
 		).Set(zonePowered)
+	}
+
+	// Log zone collection summary
+	if len(collectionErrors) > 0 {
+		tc.log.Warn("Zone metrics collection completed with errors",
+			"home_id", fmt.Sprintf("%d", homeID),
+			"total_zones", zoneCount,
+			"zones_with_errors", zoneErrorCount,
+			"error_count", len(collectionErrors))
 	}
 
 	return nil

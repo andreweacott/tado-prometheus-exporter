@@ -1,3 +1,25 @@
+// Package config handles application configuration.
+//
+// It provides:
+//   - Flag parsing with CLI arguments
+//   - Environment variable support (with CLI override)
+//   - Configuration validation
+//   - Precedence: CLI flags > environment variables > defaults
+//
+// Supported environment variables:
+//   - TADO_TOKEN_PATH: Path to token storage file
+//   - TADO_TOKEN_PASSPHRASE: Passphrase for token encryption
+//   - TADO_PORT: HTTP server port
+//   - TADO_HOME_ID: Filter to specific Tado home
+//   - TADO_SCRAPE_TIMEOUT: Timeout for API requests (seconds)
+//   - TADO_LOG_LEVEL: Logging level (debug, info, warn, error)
+//
+// Example usage:
+//
+//	cfg := config.Load()
+//	if err := cfg.Validate(); err != nil {
+//		log.Fatal(err)
+//	}
 package config
 
 import (
@@ -26,28 +48,79 @@ type Config struct {
 	LogLevel string
 }
 
-// Load parses command-line flags and returns a Config
+// Load parses environment variables and command-line flags and returns a Config
+// Precedence: CLI flags > environment variables > defaults
 func Load() *Config {
+	return LoadWithArgs(os.Args[1:])
+}
+
+// LoadWithArgs loads configuration with explicit arguments (useful for testing)
+func LoadWithArgs(args []string) *Config {
 	cfg := &Config{}
 
-	// Token storage configuration
-	tokenPath := os.Getenv("HOME")
-	if tokenPath == "" {
-		tokenPath = "/root"
+	// Read environment variables
+	envTokenPath := os.Getenv("TADO_TOKEN_PATH")
+	envTokenPassphrase := os.Getenv("TADO_TOKEN_PASSPHRASE")
+	envPort := os.Getenv("TADO_PORT")
+	envHomeID := os.Getenv("TADO_HOME_ID")
+	envScrapeTimeout := os.Getenv("TADO_SCRAPE_TIMEOUT")
+	envLogLevel := os.Getenv("TADO_LOG_LEVEL")
+
+	// Determine defaults
+	homeDir := os.Getenv("HOME")
+	if homeDir == "" {
+		homeDir = "/root"
 	}
-	defaultTokenPath := filepath.Join(tokenPath, ".tado-exporter", "token.json")
-	flag.StringVar(&cfg.TokenPath, "token-path", defaultTokenPath, "Path to store the encrypted token")
-	flag.StringVar(&cfg.TokenPassphrase, "token-passphrase", "", "Passphrase to encrypt/decrypt the token (required)")
+	defaultTokenPath := filepath.Join(homeDir, ".tado-exporter", "token.json")
+
+	// Use env var if set, otherwise use default
+	if envTokenPath != "" {
+		defaultTokenPath = envTokenPath
+	}
+	if envTokenPassphrase == "" {
+		envTokenPassphrase = ""
+	}
+	if envPort == "" {
+		envPort = "9100"
+	}
+	if envScrapeTimeout == "" {
+		envScrapeTimeout = "10"
+	}
+	if envLogLevel == "" {
+		envLogLevel = "info"
+	}
+
+	// Create a new FlagSet for this invocation (allows multiple calls in tests)
+	fs := flag.NewFlagSet("config", flag.ContinueOnError)
+
+	// Parse command-line flags (these override env vars)
+	fs.StringVar(&cfg.TokenPath, "token-path", defaultTokenPath, "Path to store the encrypted token (env: TADO_TOKEN_PATH)")
+	fs.StringVar(&cfg.TokenPassphrase, "token-passphrase", envTokenPassphrase, "Passphrase to encrypt/decrypt the token (env: TADO_TOKEN_PASSPHRASE, required)")
 
 	// Server configuration
-	flag.IntVar(&cfg.Port, "port", 9100, "HTTP server listen port")
-	flag.StringVar(&cfg.HomeID, "home-id", "", "Tado Home ID (optional, auto-detect if not provided)")
-	flag.IntVar(&cfg.ScrapeTimeout, "scrape-timeout", 10, "Maximum time in seconds to wait for API response")
-	flag.StringVar(&cfg.LogLevel, "log-level", "info", "Logging verbosity (debug, info, warn, error)")
+	fs.IntVar(&cfg.Port, "port", parseEnvInt(envPort, 9100), "HTTP server listen port (env: TADO_PORT)")
+	fs.StringVar(&cfg.HomeID, "home-id", envHomeID, "Tado Home ID (env: TADO_HOME_ID, optional)")
+	fs.IntVar(&cfg.ScrapeTimeout, "scrape-timeout", parseEnvInt(envScrapeTimeout, 10), "Maximum time in seconds to wait for API response (env: TADO_SCRAPE_TIMEOUT)")
+	fs.StringVar(&cfg.LogLevel, "log-level", envLogLevel, "Logging verbosity: debug, info, warn, error (env: TADO_LOG_LEVEL)")
 
-	flag.Parse()
+	// Parse args - in production this will be os.Args, in tests can be empty or custom
+	// FlagSet is configured with ContinueOnError, so parse errors are handled gracefully
+	_ = fs.Parse(args)
 
 	return cfg
+}
+
+// parseEnvInt parses an environment variable as an integer, returning default if invalid
+func parseEnvInt(envValue string, defaultValue int) int {
+	if envValue == "" {
+		return defaultValue
+	}
+	var result int
+	_, err := fmt.Sscanf(envValue, "%d", &result)
+	if err != nil {
+		return defaultValue
+	}
+	return result
 }
 
 // Validate checks if the configuration is valid

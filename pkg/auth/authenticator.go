@@ -1,3 +1,13 @@
+// Package auth handles OAuth2 authentication with the Tado API.
+//
+// It provides functions to:
+//   - Authenticate users via OAuth2 device code flow
+//   - Store encrypted tokens on disk
+//   - Create authenticated Tado API clients
+//
+// The package uses the clambin/tado/v2 library which handles token encryption
+// and automatic refresh. Users are guided through the authentication flow
+// with a verification URL on first run.
 package auth
 
 import (

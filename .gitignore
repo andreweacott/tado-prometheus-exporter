@@ -29,6 +29,7 @@ vendor/
 # Build output
 /exporter
 /bin/
+cmd/exporter/exporter
 
 # Tado exporter specific
 /.tado-exporter/

@@ -1,3 +1,25 @@
+// Package metrics defines Prometheus metrics for the exporter.
+//
+// It provides:
+//   - Tado API metrics (temperature, humidity, heating power, etc.)
+//   - Exporter health metrics (scrape duration, errors, authentication status)
+//   - Metric registration with Prometheus
+//
+// The package creates metrics for:
+//   - Home-level data: resident presence, weather (solar intensity, outside temperature)
+//   - Zone-level data: measured/set temperature, humidity, heating power, window/power status
+//   - Exporter health: collection performance, error tracking, authentication status
+//
+// Example usage:
+//
+//	metricDescs, err := metrics.NewMetricDescriptors()
+//	if err != nil {
+//		log.Fatal(err)
+//	}
+//	exporterMetrics, err := metrics.NewExporterMetrics()
+//	if err != nil {
+//		log.Fatal(err)
+//	}
 package metrics
 
 import (

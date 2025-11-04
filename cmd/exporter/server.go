@@ -11,6 +11,7 @@ import (
 
 	"github.com/andreweacott/tado-prometheus-exporter/pkg/collector"
 	"github.com/andreweacott/tado-prometheus-exporter/pkg/config"
+	"github.com/andreweacott/tado-prometheus-exporter/pkg/logger"
 	"github.com/andreweacott/tado-prometheus-exporter/pkg/metrics"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
@@ -22,14 +23,20 @@ func StartServer(
 	cfg *config.Config,
 	tadoCollector *collector.TadoCollector,
 	metricDescriptors *metrics.MetricDescriptors,
+	log *logger.Logger,
+	exporterMetrics *metrics.ExporterMetrics,
 ) error {
 	// Create a custom registry for our metrics
 	registry := prometheus.NewRegistry()
 
 	// Register the Tado collector
+	// The collector includes both Tado metrics and exporter health metrics (if provided)
 	if err := registry.Register(tadoCollector); err != nil {
 		return fmt.Errorf("failed to register Tado collector: %w", err)
 	}
+
+	// Note: ExporterMetrics are already registered with the default registry by NewExporterMetrics()
+	// and are collected through the TadoCollector's Collect() method
 
 	// Create HTTP server
 	mux := http.NewServeMux()
@@ -56,9 +63,9 @@ func StartServer(
 	// Start server in background
 	serverErrors := make(chan error, 1)
 	go func() {
-		fmt.Printf("Starting HTTP server on %s\n", server.Addr)
-		fmt.Printf("Metrics endpoint: http://localhost:%d/metrics\n", cfg.Port)
-		fmt.Printf("Health endpoint: http://localhost:%d/health\n", cfg.Port)
+		log.Info("Starting HTTP server", "address", server.Addr, "port", cfg.Port)
+		log.Info("Metrics endpoint available", "url", fmt.Sprintf("http://localhost:%d/metrics", cfg.Port))
+		log.Info("Health endpoint available", "url", fmt.Sprintf("http://localhost:%d/health", cfg.Port))
 		serverErrors <- server.ListenAndServe()
 	}()
 
@@ -72,7 +79,7 @@ func StartServer(
 
 	case <-ctx.Done():
 		// Graceful shutdown
-		fmt.Println("Shutting down HTTP server...")
+		log.Info("Shutting down HTTP server...")
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
 
@@ -80,7 +87,7 @@ func StartServer(
 			return fmt.Errorf("HTTP server shutdown error: %w", err)
 		}
 
-		fmt.Println("HTTP server stopped")
+		log.Info("HTTP server stopped")
 		return nil
 	}
 }
