@@ -1,5 +1,6 @@
 # Tado Prometheus Exporter
 
+
 [![Go Report Card](https://goreportcard.com/badge/github.com/andreweacott/tado-prometheus-exporter)](https://goreportcard.com/report/github.com/andreweacott/tado-prometheus-exporter)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Docker](https://img.shields.io/badge/Docker-Available-blue?logo=docker)](https://hub.docker.com/r/adventuresintech/tado-prometheus-exporter)
