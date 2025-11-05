@@ -60,34 +60,34 @@ func TestValidateHumidity(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name    string
+		name     string
 		humidity float32
-		wantErr bool
+		wantErr  bool
 	}{
 		{
-			name:    "valid humidity low",
+			name:     "valid humidity low",
 			humidity: 0,
-			wantErr: false,
+			wantErr:  false,
 		},
 		{
-			name:    "valid humidity middle",
+			name:     "valid humidity middle",
 			humidity: 45.5,
-			wantErr: false,
+			wantErr:  false,
 		},
 		{
-			name:    "valid humidity high",
+			name:     "valid humidity high",
 			humidity: 100,
-			wantErr: false,
+			wantErr:  false,
 		},
 		{
-			name:    "negative humidity",
+			name:     "negative humidity",
 			humidity: -1,
-			wantErr: true,
+			wantErr:  true,
 		},
 		{
-			name:    "humidity over 100",
+			name:     "humidity over 100",
 			humidity: 101,
-			wantErr: true,
+			wantErr:  true,
 		},
 	}
 
@@ -224,9 +224,9 @@ func TestValidateZoneMetricsInvalidPower(t *testing.T) {
 func TestValidateZoneMetricsMultipleErrors(t *testing.T) {
 	t.Parallel()
 
-	badTemp := float32(-100.0)     // Out of range
-	badHumidity := float32(-10.0)  // Out of range
-	badPower := float32(150.0)     // Out of range
+	badTemp := float32(-100.0)    // Out of range
+	badHumidity := float32(-10.0) // Out of range
+	badPower := float32(150.0)    // Out of range
 
 	metrics := &ZoneMetrics{
 		MeasuredTemperatureCelsius: &badTemp,

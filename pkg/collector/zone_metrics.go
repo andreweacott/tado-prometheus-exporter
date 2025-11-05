@@ -24,14 +24,14 @@ const (
 
 // ZoneMetrics holds extracted metrics for a single zone
 type ZoneMetrics struct {
-	MeasuredTemperatureCelsius *float32
+	MeasuredTemperatureCelsius    *float32
 	MeasuredTemperatureFahrenheit *float32
-	MeasuredHumidity *float32
-	TargetTemperatureCelsius *float32
-	TargetTemperatureFahrenheit *float32
-	HeatingPowerPercentage *float32
-	IsWindowOpen bool
-	IsZonePowered bool
+	MeasuredHumidity              *float32
+	TargetTemperatureCelsius      *float32
+	TargetTemperatureFahrenheit   *float32
+	HeatingPowerPercentage        *float32
+	IsWindowOpen                  bool
+	IsZonePowered                 bool
 }
 
 // extractZoneTemperature extracts the measured temperature from zone sensor data
@@ -105,14 +105,14 @@ func ExtractAllZoneMetrics(zoneState *tado.ZoneState) *ZoneMetrics {
 	targetC, targetF := extractTargetTemperature(zoneState)
 
 	return &ZoneMetrics{
-		MeasuredTemperatureCelsius: tempC,
+		MeasuredTemperatureCelsius:    tempC,
 		MeasuredTemperatureFahrenheit: tempF,
-		MeasuredHumidity: extractZoneHumidity(zoneState),
-		TargetTemperatureCelsius: targetC,
-		TargetTemperatureFahrenheit: targetF,
-		HeatingPowerPercentage: extractHeatingPower(zoneState),
-		IsWindowOpen: extractWindowOpenStatus(zoneState),
-		IsZonePowered: extractZonePowerStatus(zoneState),
+		MeasuredHumidity:              extractZoneHumidity(zoneState),
+		TargetTemperatureCelsius:      targetC,
+		TargetTemperatureFahrenheit:   targetF,
+		HeatingPowerPercentage:        extractHeatingPower(zoneState),
+		IsWindowOpen:                  extractWindowOpenStatus(zoneState),
+		IsZonePowered:                 extractZonePowerStatus(zoneState),
 	}
 }
 
@@ -131,8 +131,8 @@ func (ve *ValidationError) Error() string {
 func validateTemperature(temp float32, fieldName string) error {
 	if temp < MinValidTemperature || temp > MaxValidTemperature {
 		return &ValidationError{
-			Field: fieldName,
-			Value: temp,
+			Field:  fieldName,
+			Value:  temp,
 			Reason: fmt.Sprintf("outside valid range [%g, %g]°C", MinValidTemperature, MaxValidTemperature),
 		}
 	}
@@ -143,8 +143,8 @@ func validateTemperature(temp float32, fieldName string) error {
 func validateHumidity(humidity float32, fieldName string) error {
 	if humidity < MinValidHumidity || humidity > MaxValidHumidity {
 		return &ValidationError{
-			Field: fieldName,
-			Value: humidity,
+			Field:  fieldName,
+			Value:  humidity,
 			Reason: fmt.Sprintf("outside valid range [%g, %g]%%", MinValidHumidity, MaxValidHumidity),
 		}
 	}
@@ -155,8 +155,8 @@ func validateHumidity(humidity float32, fieldName string) error {
 func validatePower(power float32, fieldName string) error {
 	if power < MinValidPower || power > MaxValidPower {
 		return &ValidationError{
-			Field: fieldName,
-			Value: power,
+			Field:  fieldName,
+			Value:  power,
 			Reason: fmt.Sprintf("outside valid range [%g, %g]%%", MinValidPower, MaxValidPower),
 		}
 	}
@@ -169,7 +169,7 @@ func ValidateZoneMetrics(metrics *ZoneMetrics) []error {
 
 	if metrics == nil {
 		errors = append(errors, &ValidationError{
-			Field: "metrics",
+			Field:  "metrics",
 			Reason: "metrics object is nil",
 		})
 		return errors
