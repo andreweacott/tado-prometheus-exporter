@@ -6,8 +6,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/clambin/tado/v2"
 	"github.com/andreweacott/tado-prometheus-exporter/pkg/collector/mocks"
+	"github.com/clambin/tado/v2"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"

@@ -30,9 +30,10 @@ help:
 	@echo "  $(YELLOW)test-coverage$(NC)      - Run tests with coverage report"
 	@echo "  $(YELLOW)coverage$(NC)           - Generate and open coverage report (HTML)"
 	@echo "  $(YELLOW)lint$(NC)               - Run golangci-lint"
-	@echo "  $(YELLOW)fmt$(NC)                - Format code with gofmt"
+	@echo "  $(YELLOW)fmt$(NC)                - Format code with gofmt -s (modifies files)"
+	@echo "  $(YELLOW)fmt-check$(NC)          - Check code formatting without modifying files"
 	@echo "  $(YELLOW)vet$(NC)                - Run go vet"
-	@echo "  $(YELLOW)check$(NC)              - Run build, lint, test (full check)"
+	@echo "  $(YELLOW)check$(NC)              - Run build, fmt-check, lint, vet, test (full check)"
 	@echo "  $(YELLOW)clean$(NC)              - Remove binary and build artifacts"
 	@echo "  $(YELLOW)run$(NC)                - Build and run the exporter"
 	@echo "  $(YELLOW)docker-build$(NC)       - Build Docker image"
@@ -92,11 +93,23 @@ lint:
 	fi
 	@echo "$(GREEN)✓ Linting passed$(NC)"
 
-# Format code with gofmt
+# Format code with gofmt -s (simplified formatting)
 fmt:
-	@echo "$(BLUE)Formatting code...$(NC)"
-	$(GO) fmt ./...
+	@echo "$(BLUE)Formatting code with gofmt -s...$(NC)"
+	gofmt -s -w .
 	@echo "$(GREEN)✓ Code formatted$(NC)"
+
+# Check code formatting without modifying files
+fmt-check:
+	@echo "$(BLUE)Checking code formatting...$(NC)"
+	@unformatted=$$(gofmt -s -l . 2>/dev/null); \
+	if [ -n "$$unformatted" ]; then \
+		echo "$(RED)✗ Code formatting issues found:$(NC)"; \
+		echo "$$unformatted"; \
+		echo "$(YELLOW)Run 'make fmt' to fix formatting$(NC)"; \
+		exit 1; \
+	fi; \
+	echo "$(GREEN)✓ Code formatting is correct$(NC)"
 
 # Run go vet
 vet:
@@ -104,8 +117,8 @@ vet:
 	$(GO) vet ./...
 	@echo "$(GREEN)✓ Vet passed$(NC)"
 
-# Full check: build, lint, vet, test
-check: build lint vet test
+# Full check: build, fmt-check, lint, vet, test
+check: build fmt-check lint vet test
 	@echo "$(GREEN)✓ All checks passed$(NC)"
 
 # Clean build artifacts
