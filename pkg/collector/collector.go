@@ -34,7 +34,6 @@ type TadoCollector struct {
 	exporterMetrics   *metrics.ExporterMetrics // Optional: for internal health monitoring
 }
 
-// NewTadoCollector creates a new Tado metrics collector
 func NewTadoCollector(
 	tadoClient TadoAPI,
 	metricDescriptors *metrics.MetricDescriptors,
@@ -44,7 +43,6 @@ func NewTadoCollector(
 	return NewTadoCollectorWithLogger(tadoClient, metricDescriptors, scrapeTimeout, homeID, nil)
 }
 
-// NewTadoCollectorWithLogger creates a new Tado metrics collector with logging
 func NewTadoCollectorWithLogger(
 	tadoClient TadoAPI,
 	metricDescriptors *metrics.MetricDescriptors,
@@ -74,7 +72,6 @@ func (tc *TadoCollector) WithExporterMetrics(em *metrics.ExporterMetrics) *TadoC
 	return tc
 }
 
-// Describe sends the super-set of all possible descriptors of metrics collected by this collector
 func (tc *TadoCollector) Describe(ch chan<- *prometheus.Desc) {
 	// Home-level metrics
 	tc.metricDescriptors.IsResidentPresent.Describe(ch)
@@ -110,7 +107,6 @@ func (tc *TadoCollector) Collect(ch chan<- prometheus.Metric) {
 	ctx, cancel := context.WithTimeout(context.Background(), tc.scrapeTimeout)
 	defer cancel()
 
-	// Record scrape duration if exporter metrics are configured
 	var startTime time.Time
 	if tc.exporterMetrics != nil {
 		startTime = time.Now()
@@ -119,14 +115,12 @@ func (tc *TadoCollector) Collect(ch chan<- prometheus.Metric) {
 	// Fetch metrics from Tado API
 	if err := tc.fetchAndCollectMetrics(ctx); err != nil {
 		tc.log.Warn("Failed to collect Tado metrics", "error", err.Error())
-		// Increment error counter if exporter metrics are configured
 		if tc.exporterMetrics != nil {
 			tc.exporterMetrics.IncrementScrapeErrors()
 		}
 		// Don't return - Prometheus will use last known values
 	}
 
-	// Record scrape duration if exporter metrics are configured
 	if tc.exporterMetrics != nil {
 		duration := time.Since(startTime).Seconds()
 		tc.exporterMetrics.RecordScrapeDuration(duration)
@@ -194,11 +188,9 @@ func (tc *TadoCollector) fetchAndCollectMetrics(ctx context.Context) error {
 		tc.exporterMetrics.RecordAuthenticationSuccess()
 	}
 
-	// Collect metrics from each home - continue even if one fails
 	homeCount := 0
 	homeErrorCount := 0
 	for _, userHome := range *user.Homes {
-		// Get home ID value (might be pointer)
 		homeID := userHome.Id
 		if homeID == nil {
 			continue
@@ -244,7 +236,6 @@ func (tc *TadoCollector) fetchAndCollectMetrics(ctx context.Context) error {
 
 // collectHomeMetrics collects home-level metrics (presence, weather)
 func (tc *TadoCollector) collectHomeMetrics(ctx context.Context, homeID tado.HomeId) error {
-	// Get home state (for resident presence)
 	homeState, err := tc.tadoClient.GetHomeState(ctx, homeID)
 	if err != nil {
 		return fmt.Errorf("failed to get home state: %w", err)
@@ -293,13 +284,11 @@ func (tc *TadoCollector) collectHomeMetrics(ctx context.Context, homeID tado.Hom
 // This function continues collecting metrics for each zone even if one zone fails,
 // ensuring partial metrics are available even if some zones have errors.
 func (tc *TadoCollector) collectZoneMetrics(ctx context.Context, homeID tado.HomeId) error {
-	// Get all zones for this home
 	zones, err := tc.tadoClient.GetZones(ctx, homeID)
 	if err != nil {
 		return fmt.Errorf("failed to get zones: %w", err)
 	}
 
-	// Get zone states
 	zoneStates, err := tc.tadoClient.GetZoneStates(ctx, homeID)
 	if err != nil {
 		return fmt.Errorf("failed to get zone states: %w", err)
@@ -309,7 +298,6 @@ func (tc *TadoCollector) collectZoneMetrics(ctx context.Context, homeID tado.Hom
 		return fmt.Errorf("zone states are nil")
 	}
 
-	// Collect metrics for each zone - continue even if one fails
 	homeIDStr := fmt.Sprintf("%d", homeID)
 	zoneCount := 0
 	zoneErrorCount := 0
@@ -322,7 +310,6 @@ func (tc *TadoCollector) collectZoneMetrics(ctx context.Context, homeID tado.Hom
 		zoneCount++
 	}
 
-	// Log zone collection summary
 	if zoneErrorCount > 0 {
 		tc.log.Warn("Zone metrics collection completed with errors",
 			"home_id", homeIDStr,
@@ -335,20 +322,17 @@ func (tc *TadoCollector) collectZoneMetrics(ctx context.Context, homeID tado.Hom
 
 // collectSingleZoneMetrics collects metrics for a single zone
 func (tc *TadoCollector) collectSingleZoneMetrics(homeIDStr string, zone tado.Zone, zoneStatesMap map[string]tado.ZoneState) error {
-	// Validate zone ID
 	if zone.Id == nil {
 		return fmt.Errorf("zone ID is nil")
 	}
 
 	zoneIDStr := fmt.Sprintf("%d", *zone.Id)
 
-	// Get zone state from the map
 	zoneState, ok := zoneStatesMap[zoneIDStr]
 	if !ok {
 		return fmt.Errorf("zone state not found in map")
 	}
 
-	// Extract zone metadata for labels
 	zoneName := zone.Name
 	if zoneName == nil {
 		zoneName = &[]string{"unknown"}[0]
@@ -358,10 +342,8 @@ func (tc *TadoCollector) collectSingleZoneMetrics(homeIDStr string, zone tado.Zo
 		zoneType = string(*zone.Type)
 	}
 
-	// Extract all metrics from zone state
 	metrics := ExtractAllZoneMetrics(&zoneState)
 
-	// Validate extracted metrics
 	validationErrors := ValidateZoneMetrics(metrics)
 	if len(validationErrors) > 0 {
 		for _, err := range validationErrors {
@@ -369,7 +351,6 @@ func (tc *TadoCollector) collectSingleZoneMetrics(homeIDStr string, zone tado.Zo
 		}
 	}
 
-	// Record all metrics
 	labels := []string{homeIDStr, zoneIDStr, *zoneName, zoneType}
 	tc.recordMeasuredTemperatureMetrics(zoneIDStr, labels, metrics)
 	tc.recordMeasuredHumidityMetric(zoneIDStr, labels, metrics)

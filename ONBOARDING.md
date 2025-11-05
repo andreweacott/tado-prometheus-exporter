@@ -15,11 +15,10 @@
 **Architecture Philosophy:** Simple, fault-tolerant, observable. The system continues collecting partial metrics even when some API calls fail—crucial for production monitoring.
 
 **Key Architectural Patterns:**
-1. **Circuit Breaker** - Protects against API failures with automatic recovery
-2. **Graceful Degradation** - Collects partial metrics when some API calls fail
-3. **Metric Validation** - Validates data quality before recording to Prometheus
-4. **Zero-Config Auth** - OAuth device code flow with encrypted token storage
-5. **Self-Monitoring** - Exposes exporter health metrics for observability
+1. **Graceful Degradation** - Collects partial metrics when some API calls fail
+2. **Metric Validation** - Validates data quality before recording to Prometheus
+3. **Zero-Config Auth** - OAuth device code flow with encrypted token storage
+4. **Self-Monitoring** - Exposes exporter health metrics for observability
 
 ---
 
@@ -106,7 +105,7 @@ make clean
 |---------|--------------|-----------|----------------|
 | `cmd/exporter` | Application entry point, server lifecycle | `main.go`, `server.go` | Where execution starts; orchestrates everything |
 | `pkg/auth` | OAuth2 device code flow, token encryption | `authenticator.go` | The "magic" that enables zero-config auth |
-| `pkg/collector` | Implements Prometheus collector interface | `collector.go`, `circuit_breaker.go`, `zone_metrics.go` | Heart of metrics collection; implements graceful degradation + resilience |
+| `pkg/collector` | Implements Prometheus collector interface | `collector.go`, `zone_metrics.go` | Heart of metrics collection; implements graceful degradation |
 | `pkg/config` | CLI flags + env vars with precedence | `config.go` | Precedence: CLI > env > defaults |
 | `pkg/logger` | Structured logging (logrus wrapper) | `logger.go` | Adds context fields like home_id, zone_id |
 | `pkg/metrics` | Metric definitions (Tado + exporter health) | `metrics.go`, `exporter_metrics.go` | Defines what we expose to Prometheus |
@@ -201,32 +200,7 @@ export TADO_PORT=8080
 
 **Why:** You can alert on `tado_exporter_authentication_valid == 0` to detect auth issues before metrics stop flowing.
 
-### 5. Circuit Breaker Pattern (Resilience Against API Failures)
-
-**The Problem:** If the Tado API becomes unreliable, should we keep hammering it with requests?
-
-**The Solution:** Use a circuit breaker that "trips" after repeated failures, temporarily stops making requests, then gradually tries again.
-
-**Where it happens:** `pkg/collector/circuit_breaker.go` wraps the Tado API client
-
-**How it works:**
-- **Closed** (normal): All requests go through
-- **Open** (tripped): After 5 consecutive failures, circuit opens for 30 seconds
-- **Half-Open** (testing): After timeout, allows 1 request to test if API recovered
-
-```go
-// In main.go initialization
-cbConfig := collector.DefaultCircuitBreakerConfig()
-tadoClient = collector.NewTadoAPIWithCircuitBreaker(tadoClient, cbConfig)
-```
-
-**Configuration:**
-- `MaxConsecutiveFailures`: 5 (configurable)
-- `Timeout`: 30 seconds (how long to wait before testing recovery)
-
-**Why it matters:** Prevents cascading failures, gives the API time to recover, provides clear error messages to operators.
-
-### 6. Metric Validation (Data Quality Assurance)
+### 5. Metric Validation (Data Quality Assurance)
 
 **The Problem:** What if the Tado API returns nonsensical values (e.g., temperature = 500°C)?
 
@@ -369,35 +343,6 @@ registry.Register(metric)
 
 **Why validate:** Prevents bad data from corrupting Prometheus time-series, enables early detection of API/sensor issues.
 
-### Configure Circuit Breaker
-
-**Scenario:** You need to adjust circuit breaker behavior for your environment.
-
-**Default Configuration:**
-- Max failures before opening: 5
-- Open timeout: 30 seconds
-- Max requests in half-open: 1
-
-**To Change:**
-
-Edit `cmd/exporter/main.go`:
-
-```go
-cbConfig := collector.CircuitBreakerConfig{
-    MaxConsecutiveFailures: 3,  // Open after 3 failures instead of 5
-    Timeout:                60 * time.Second,  // Wait 60s before testing recovery
-}
-tadoClient = collector.NewTadoAPIWithCircuitBreaker(tadoClient, cbConfig)
-```
-
-**When to adjust:**
-- **Lower MaxFailures** (2-3): If API is critical and you want fast failure detection
-- **Higher MaxFailures** (10+): If API has occasional transient errors
-- **Longer Timeout** (60s+): If API takes time to recover
-- **Shorter Timeout** (10s): If API recovers quickly
-
-**Monitoring:** Watch logs for "circuit breaker is open" messages to tune these values.
-
 ### Run Tests
 
 ```bash
@@ -528,7 +473,6 @@ cd local && docker-compose logs -f exporter
 | `clambin/tado/v2` | v2.6.2 | Tado API client | OAuth2 device code flow + auto token refresh + encrypted storage |
 | `prometheus/client_golang` | v1.23.2 | Prometheus client library | Official Prometheus library |
 | `sirupsen/logrus` | v1.9.3 | Structured logging | Industry standard, simple structured logging |
-| `sony/gobreaker` | v1.0.0 | Circuit breaker | Resilience pattern for API failures |
 | `stretchr/testify` | v1.11.1 | Test assertions | Makes tests readable with assert/require |
 | `golang.org/x/oauth2` | v0.32.0 | OAuth2 client | Required by clambin/tado |
 
@@ -643,15 +587,7 @@ for _, tt := range tests {
 
 **When to reconsider:** If you have many homes (10+) and scrapes are too slow.
 
-**5. Circuit Breaker for API Resilience**
-
-**Why:** Protects against cascading failures when Tado API becomes unreliable. Gives the API time to recover instead of hammering it with requests.
-
-**Trade-off:** Some scrapes will fail completely when circuit is open, but this prevents worse outcomes (prolonged outages, rate limiting, resource exhaustion).
-
-**Implementation:** Wraps all API calls with `sony/gobreaker` library. Transparent to collector logic.
-
-**6. Metric Validation at Collection Time**
+**5. Metric Validation at Collection Time**
 
 **Why:** Better to catch bad data early than to corrupt Prometheus time-series. Also helps operators spot sensor/API issues.
 
@@ -691,19 +627,10 @@ If no valid token exists, the exporter blocks on authentication (waiting for use
 
 **Why it matters:** First startup in automation (CI, Kubernetes) will hang until you authenticate. Pre-authenticate before deploying.
 
-**6. Circuit Breaker State is Not Persisted**
-
-The circuit breaker resets to "closed" on exporter restart, even if it was open before.
-
-**Why it matters:** Restarting the exporter will bypass the circuit breaker protection temporarily. Don't restart the exporter as a "fix" for circuit breaker issues—you'll just hit the same failures again.
-
-**Better approach:** Wait for the circuit to self-heal, or fix the underlying API issue.
-
 ### Modern vs Legacy Patterns
 
 **Current (Modern) Patterns:**
 - OAuth2 device code flow (no pre-registered app)
-- Circuit breaker for API resilience
 - Metric validation before recording
 - Graceful degradation on errors
 - Structured logging with context
@@ -799,29 +726,6 @@ curl http://localhost:9100/metrics | grep scrape_errors_total
 ./exporter --scrape-timeout=20  # Increase from default 10s
 ```
 
-**5. "Circuit breaker is open"**
-
-**Cause:** Tado API failed multiple times (5 consecutive failures by default)
-
-**What it means:** The exporter is temporarily stopping API requests to give the API time to recover
-
-**Fix:**
-- **Wait:** Circuit will automatically test recovery after 30 seconds
-- **Check Tado API status:** Visit Tado's status page or Twitter
-- **Check logs:** Look for underlying error messages before circuit opened
-- **Adjust threshold:** If transient errors are common, increase `MaxConsecutiveFailures`
-
-**Debug:**
-```bash
-# Check for circuit breaker errors
-./exporter --log-level=debug --token-passphrase=secret 2>&1 | grep "circuit breaker"
-
-# Common patterns in logs:
-# "circuit breaker is open" → Circuit tripped, waiting for timeout
-# "circuit breaker is half-open" → Testing if API recovered
-# "circuit breaker is closed" → Normal operation resumed
-```
-
 ### Useful Commands
 
 ```bash
@@ -881,18 +785,11 @@ cat ~/.tado-exporter/token.json
 - **Unknown:** Detailed Kubernetes manifests (Deployment, Service, ConfigMap, Secret)
 - **Next step:** Create `k8s/` directory with example manifests
 
-**6. Circuit Breaker Metrics**
-
-- **Gap:** Circuit breaker state not currently exposed as Prometheus metrics
-- **Opportunity:** Add `tado_exporter_circuit_breaker_state` gauge (0=closed, 1=open, 2=half-open)
-- **Next step:** Enhance circuit_breaker.go to expose state metrics
-
 ### Questions for New Contributors
 
 - Are there other Tado API endpoints we should expose?
 - Should we add a `/config` endpoint to view current configuration?
 - Should we support multiple Tado accounts in one exporter instance?
-- Should circuit breaker state be exposed as a Prometheus metric?
 
 ---
 
@@ -917,7 +814,6 @@ cat ~/.tado-exporter/token.json
 - [Prometheus Client Library](https://prometheus.io/docs/instrumenting/clientlibs/)
 - [OAuth2 Device Code Flow](https://oauth.net/2/device-flow/)
 - [clambin/tado GitHub](https://github.com/clambin/tado)
-- [sony/gobreaker GitHub](https://github.com/sony/gobreaker)
 
 ### Getting Help
 
@@ -972,7 +868,6 @@ make clean         # Remove build artifacts
 
 **Metrics Collection:**
 - `pkg/collector/collector.go` - Main Prometheus collector, orchestration
-- `pkg/collector/circuit_breaker.go` - API resilience wrapper
 - `pkg/collector/zone_metrics.go` - Metric extraction and validation
 - `pkg/collector/interfaces.go` - TadoAPI interface definition
 
