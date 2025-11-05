@@ -22,11 +22,12 @@ import (
 // CreateTadoClient creates a Tado API client with encrypted token storage
 // On first run, it will perform OAuth device code authentication
 // The user will be prompted to visit a verification URL
+// The token is persisted to tokenPath with encryption using tokenPassphrase
 func CreateTadoClient(ctx context.Context, tokenPath, tokenPassphrase string) (*http.Client, error) {
 	// NewOAuth2Client handles:
 	// - Loading existing token from tokenPath if valid
 	// - Performing device code OAuth flow if no valid token
-	// - Storing encrypted token to tokenPath with tokenPassphrase
+	// - Storing encrypted token to tokenPath with tokenPassphrase via TokenSource when Token() is called
 	// - Automatically refreshing token when needed
 	client, err := tado.NewOAuth2Client(
 		ctx,
@@ -41,7 +42,30 @@ func CreateTadoClient(ctx context.Context, tokenPath, tokenPassphrase string) (*
 		return nil, fmt.Errorf("failed to create OAuth2 client: %w", err)
 	}
 
+	// Persist the token to disk immediately after authentication
+	// This ensures newly acquired tokens are saved before the application makes API calls
+	err = persistToken(client)
+	if err != nil {
+		return nil, fmt.Errorf("failed to persist token: %w", err)
+	}
+
 	return client, nil
+}
+
+// persistToken forces the token to be saved by calling Token() on the client's token source
+// This ensures newly acquired tokens are persisted to disk immediately after authentication,
+// rather than waiting for the first API call which may never happen in some scenarios
+func persistToken(client *http.Client) error {
+	// The oauth2.Transport wraps the http.Client and manages token refresh
+	transport, ok := client.Transport.(*oauth2.Transport)
+	if !ok {
+		return fmt.Errorf("invalid transport type: expected *oauth2.Transport")
+	}
+
+	// Calling Token() on the TokenSource triggers the custom TokenSource.Token() method
+	// which saves the token via TokenStore.Save() if it's a new token
+	_, err := transport.Source.Token()
+	return err
 }
 
 // CreateTadoClientWithHTTPClient creates a Tado API client using clambin/tado library
