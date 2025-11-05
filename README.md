@@ -28,43 +28,46 @@ A pre-built Grafana dashboard is included for monitoring Tado metrics.
 
 ## Quick Start
 
-### Option 1: Docker (Standalone)
+### Recommended: Pre-built Docker Image
+
+The easiest way to get started is using the pre-built Docker image from Docker Hub:
 
 ```bash
-# Build locally
-docker build -t tado-exporter .
-
-# Run container
 docker run -d \
   --name tado-exporter \
   -p 9100:9100 \
   -v tado-tokens:/root/.tado-exporter \
   -e TADO_TOKEN_PASSPHRASE="your-secure-passphrase" \
-  tado-exporter
+  adventuresintech/tado-prometheus-exporter
 
 # Check logs for authentication URL
 docker logs tado-exporter
 ```
 
-**First run**: Visit the URL shown in `docker logs tado-exporter` to authorize with your Tado account.
+**First run**: Visit the URL shown in `docker logs tado-exporter` to authorize with your Tado account. On subsequent runs, authentication is automatic.
 
-### Option 2: Docker Compose (local testing)
-A docker compose YAML file is included for locally testing the exporter along with Prometheus and Grafana containers.
-Start the stack with:
+Image available at: [`adventuresintech/tado-prometheus-exporter`](https://hub.docker.com/r/adventuresintech/tado-prometheus-exporter)
+
+### Alternative: Docker Compose (with Prometheus & Grafana)
+
+For a complete monitoring stack with Prometheus and Grafana included:
 
 ```bash
 # Start the full stack
 cd local && TADO_TOKEN_PASSPHRASE=your-secret docker-compose up -d
 
-# View logs and authenticate by visiting the authentication URL
+# View logs and authenticate
 cd local && docker-compose logs -f exporter
 
-# Access services
+# Access services:
 # - Exporter metrics: http://localhost:9100/metrics
 # - Prometheus: http://localhost:9090
 # - Grafana: http://localhost:3000 (admin/admin)
+```
 
-### Option 3: Standalone Binary
+### Alternative: Standalone Binary
+
+For direct installation without Docker:
 
 ```bash
 # Build from source
