@@ -31,11 +31,31 @@ RUN addgroup -g 1000 -S exporter && \
 # Copy binary from builder
 COPY --from=builder --chown=exporter:exporter /app/tado-exporter /usr/local/bin/tado-exporter
 
-# Verify binary has correct permissions
-RUN chmod 755 /usr/local/bin/tado-exporter
+# Copy entrypoint script - runs as root to fix volume permissions, then drops to exporter user
+COPY <<'EOF' /usr/local/bin/entrypoint.sh
+#!/bin/sh
+set -e
 
-# Switch to non-root user
-USER exporter
+# Ensure token directory exists with proper permissions
+# This handles cases where volume mounts override the Dockerfile's setup
+mkdir -p /home/exporter/.tado-exporter || { echo "ERROR: Failed to create token directory"; exit 1; }
+chown exporter:exporter /home/exporter/.tado-exporter || { echo "ERROR: Failed to fix directory ownership"; exit 1; }
+chmod 755 /home/exporter/.tado-exporter || { echo "ERROR: Failed to set directory permissions"; exit 1; }
+
+# Secure token file permissions if it already exists from a previous run
+if [ -f /home/exporter/.tado-exporter/token.json ]; then
+    chmod 600 /home/exporter/.tado-exporter/token.json || { echo "WARNING: Could not secure token file"; }
+fi
+
+# Drop to exporter user and run the application
+exec su-exec exporter /usr/local/bin/tado-exporter "$@"
+EOF
+
+# Install su-exec for dropping privileges safely
+RUN apk --no-cache add su-exec
+
+# Verify binary has correct permissions
+RUN chmod 755 /usr/local/bin/tado-exporter /usr/local/bin/entrypoint.sh
 
 # Expose metrics port
 EXPOSE 9100
@@ -44,5 +64,6 @@ EXPOSE 9100
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
   CMD wget --no-verbose --tries=1 --spider http://localhost:9100/health || exit 1
 
-# Run exporter as non-root user
-ENTRYPOINT ["/usr/local/bin/tado-exporter"]
+# Run entrypoint as root (needed to fix volume mount permissions)
+# The entrypoint will drop privileges to exporter user
+ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
