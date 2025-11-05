@@ -246,7 +246,7 @@ func TestChainingContext(t *testing.T) {
 	log, err := NewWithWriter("info", "json", buf)
 	require.NoError(t, err)
 
-	entry := log.Logger.WithFields(map[string]interface{}{
+	entry := log.WithFields(map[string]interface{}{
 		"request_id": "req-123",
 		"home_id":    12345,
 		"zone_id":    1,

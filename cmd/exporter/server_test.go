@@ -157,7 +157,7 @@ func TestHealthEndpointIntegration(t *testing.T) {
 	// Test /health endpoint
 	resp, err := http.Get(fmt.Sprintf("http://localhost:%d/health", cfg.Port))
 	require.NoError(t, err)
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	assert.Equal(t, http.StatusOK, resp.StatusCode)
 	assert.Equal(t, "application/json", resp.Header.Get("Content-Type"))
@@ -217,7 +217,7 @@ func TestStartServerGracefulShutdown(t *testing.T) {
 	// Verify server is running
 	resp, err := http.Get(fmt.Sprintf("http://localhost:%d/health", cfg.Port))
 	require.NoError(t, err)
-	resp.Body.Close()
+	_ = resp.Body.Close()
 	assert.Equal(t, http.StatusOK, resp.StatusCode)
 
 	// Cancel context to trigger shutdown
@@ -301,7 +301,7 @@ func TestStartServerPortInUse(t *testing.T) {
 	// Occupy the port with a dummy listener
 	listener, err := net.Listen("tcp", fmt.Sprintf(":%d", port))
 	require.NoError(t, err)
-	defer listener.Close()
+	defer func() { _ = listener.Close() }()
 
 	cfg := &config.Config{
 		Port:            port,
@@ -419,7 +419,7 @@ func TestServerHeadersAndContent(t *testing.T) {
 	// Test /health headers
 	resp, err := http.Get(fmt.Sprintf("http://localhost:%d/health", cfg.Port))
 	require.NoError(t, err)
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	assert.Equal(t, http.StatusOK, resp.StatusCode)
 	assert.Equal(t, "application/json", resp.Header.Get("Content-Type"))
@@ -459,7 +459,7 @@ func findFreePort() int {
 	if err != nil {
 		return 9100 // fallback to default
 	}
-	defer listener.Close()
+	defer func() { _ = listener.Close() }()
 
 	addr := listener.Addr().(*net.TCPAddr)
 	return addr.Port

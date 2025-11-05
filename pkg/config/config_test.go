@@ -10,19 +10,19 @@ import (
 // TestLoad_FromEnvironmentVariables tests loading configuration from environment variables
 func TestLoad_FromEnvironmentVariables(t *testing.T) {
 	// Set environment variables
-	os.Setenv("TADO_PORT", "9091")
-	os.Setenv("TADO_TOKEN_PASSPHRASE", "test-passphrase")
-	os.Setenv("TADO_HOME_ID", "12345")
-	os.Setenv("TADO_SCRAPE_TIMEOUT", "20")
-	os.Setenv("TADO_LOG_LEVEL", "debug")
-	os.Setenv("TADO_TOKEN_PATH", "/tmp/token.json")
+	_ = os.Setenv("TADO_PORT", "9091")
+	_ = os.Setenv("TADO_TOKEN_PASSPHRASE", "test-passphrase")
+	_ = os.Setenv("TADO_HOME_ID", "12345")
+	_ = os.Setenv("TADO_SCRAPE_TIMEOUT", "20")
+	_ = os.Setenv("TADO_LOG_LEVEL", "debug")
+	_ = os.Setenv("TADO_TOKEN_PATH", "/tmp/token.json")
 	defer func() {
-		os.Unsetenv("TADO_PORT")
-		os.Unsetenv("TADO_TOKEN_PASSPHRASE")
-		os.Unsetenv("TADO_HOME_ID")
-		os.Unsetenv("TADO_SCRAPE_TIMEOUT")
-		os.Unsetenv("TADO_LOG_LEVEL")
-		os.Unsetenv("TADO_TOKEN_PATH")
+		_ = os.Unsetenv("TADO_PORT")
+		_ = os.Unsetenv("TADO_TOKEN_PASSPHRASE")
+		_ = os.Unsetenv("TADO_HOME_ID")
+		_ = os.Unsetenv("TADO_SCRAPE_TIMEOUT")
+		_ = os.Unsetenv("TADO_LOG_LEVEL")
+		_ = os.Unsetenv("TADO_TOKEN_PATH")
 	}()
 
 	// Call with empty args (no CLI flags)
@@ -39,12 +39,12 @@ func TestLoad_FromEnvironmentVariables(t *testing.T) {
 // TestLoad_Defaults tests loading configuration with default values
 func TestLoad_Defaults(t *testing.T) {
 	// Clear environment variables
-	os.Unsetenv("TADO_PORT")
-	os.Unsetenv("TADO_TOKEN_PASSPHRASE")
-	os.Unsetenv("TADO_HOME_ID")
-	os.Unsetenv("TADO_SCRAPE_TIMEOUT")
-	os.Unsetenv("TADO_LOG_LEVEL")
-	os.Unsetenv("TADO_TOKEN_PATH")
+	_ = os.Unsetenv("TADO_PORT")
+	_ = os.Unsetenv("TADO_TOKEN_PASSPHRASE")
+	_ = os.Unsetenv("TADO_HOME_ID")
+	_ = os.Unsetenv("TADO_SCRAPE_TIMEOUT")
+	_ = os.Unsetenv("TADO_LOG_LEVEL")
+	_ = os.Unsetenv("TADO_TOKEN_PATH")
 
 	cfg := LoadWithArgs([]string{})
 
@@ -57,11 +57,11 @@ func TestLoad_Defaults(t *testing.T) {
 
 // TestLoad_InvalidEnvironmentVariables tests handling of invalid environment variables
 func TestLoad_InvalidEnvironmentVariables(t *testing.T) {
-	os.Setenv("TADO_PORT", "invalid")
-	os.Setenv("TADO_SCRAPE_TIMEOUT", "not-a-number")
+	_ = os.Setenv("TADO_PORT", "invalid")
+	_ = os.Setenv("TADO_SCRAPE_TIMEOUT", "not-a-number")
 	defer func() {
-		os.Unsetenv("TADO_PORT")
-		os.Unsetenv("TADO_SCRAPE_TIMEOUT")
+		_ = os.Unsetenv("TADO_PORT")
+		_ = os.Unsetenv("TADO_SCRAPE_TIMEOUT")
 	}()
 
 	cfg := LoadWithArgs([]string{})
