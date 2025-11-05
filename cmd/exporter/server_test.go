@@ -56,7 +56,6 @@ func getTestExporterMetrics() (*metrics.ExporterMetrics, error) {
 	return testExporterMets, err
 }
 
-// getTestLogger returns a logger for testing that writes to /dev/null
 func getTestLogger() *logger.Logger {
 	testLog, _ := logger.NewWithWriter("error", "text", io.Discard)
 	return testLog
@@ -97,21 +96,16 @@ func TestHandleHealth(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			// Create a request
 			req, err := http.NewRequest(tt.method, "/health", nil)
 			require.NoError(t, err)
 
-			// Create a response recorder
 			recorder := httpTestRecorder{}
 			handleHealth(&recorder, req)
 
-			// Check status code
 			assert.Equal(t, tt.expectedStatus, recorder.statusCode)
 
-			// Check content type
 			assert.Equal(t, "application/json", recorder.headers.Get("Content-Type"))
 
-			// Check body
 			var body map[string]string
 			err = json.Unmarshal(recorder.body.Bytes(), &body)
 			require.NoError(t, err)
@@ -172,12 +166,6 @@ func TestHealthEndpointIntegration(t *testing.T) {
 
 	// Wait for server shutdown
 	<-done
-}
-
-// TestMetricsEndpointResponseFormat tests the /metrics endpoint returns proper format
-// Note: We skip the full metric collection since it requires a real Tado client
-func TestMetricsEndpointResponseFormat(t *testing.T) {
-	t.Skip("Skipping full metrics integration test - requires mocking gotado client")
 }
 
 // TestStartServerGracefulShutdown tests graceful shutdown
@@ -368,18 +356,6 @@ func TestSetupGracefulShutdownWithSignal(t *testing.T) {
 	case <-time.After(1 * time.Second):
 		t.Fatal("context should have been cancelled by signal")
 	}
-}
-
-// TestMetricsEndpointWithCustomTimeout tests metrics endpoint respects timeout
-// Skipped: requires mocking the Tado API client
-func TestMetricsEndpointWithCustomTimeout(t *testing.T) {
-	t.Skip("Skipping metrics collection test - requires proper Tado client mocking")
-}
-
-// TestMetricsCollectorRegistration tests that collector is properly registered
-// Skipped: causes Prometheus gather to call Collect() which requires Tado client
-func TestMetricsCollectorRegistration(t *testing.T) {
-	t.Skip("Skipping collector registration test - Prometheus gather triggers collection")
 }
 
 // TestServerHeadersAndContent tests server response headers and content

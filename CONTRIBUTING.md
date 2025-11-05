@@ -7,7 +7,7 @@ We welcome contributions to the Tado Prometheus Exporter! This guide will help y
 New to this project? Start with the **[ONBOARDING.md](ONBOARDING.md)** guide! It covers:
 - Project architecture and design patterns
 - How the codebase is organized
-- Key concepts (OAuth2, circuit breaker, graceful degradation)
+- Key concepts (OAuth2, graceful degradation, metric validation)
 - Common development tasks (adding metrics, running tests, debugging)
 - Troubleshooting guide
 
@@ -133,17 +133,13 @@ See ONBOARDING.md's **[How To: Add Metric Validation](ONBOARDING.md#add-metric-v
 
 Refer to ONBOARDING.md's **[Debug Authentication Issues](ONBOARDING.md#debug-authentication-issues)** section.
 
-### Configuring Resilience Features
-
-See ONBOARDING.md's **[Configure Circuit Breaker](ONBOARDING.md#configure-circuit-breaker)** to adjust API resilience settings.
-
 ---
 
 ## Architecture Overview
 
 For a detailed understanding of:
 - **System design** and **data flow**
-- **Key architectural patterns** (circuit breaker, graceful degradation, etc.)
+- **Key architectural patterns** (graceful degradation, metric validation, etc.)
 - **Package responsibilities**
 - **Design decisions**
 

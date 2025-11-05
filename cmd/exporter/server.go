@@ -26,7 +26,6 @@ func StartServer(
 	log *logger.Logger,
 	exporterMetrics *metrics.ExporterMetrics,
 ) error {
-	// Create a custom registry for our metrics
 	registry := prometheus.NewRegistry()
 
 	// Register the Tado collector
@@ -35,10 +34,6 @@ func StartServer(
 		return fmt.Errorf("failed to register Tado collector: %w", err)
 	}
 
-	// Note: ExporterMetrics are already registered with the default registry by NewExporterMetrics()
-	// and are collected through the TadoCollector's Collect() method
-
-	// Create HTTP server
 	mux := http.NewServeMux()
 
 	// Register /metrics endpoint with our custom registry
@@ -51,7 +46,6 @@ func StartServer(
 	// Register /health endpoint
 	mux.HandleFunc("/health", handleHealth)
 
-	// Create HTTP server
 	server := &http.Server{
 		Addr:         fmt.Sprintf(":%d", cfg.Port),
 		Handler:      mux,
@@ -78,7 +72,6 @@ func StartServer(
 		return nil
 
 	case <-ctx.Done():
-		// Graceful shutdown
 		log.Info("Shutting down HTTP server...")
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()

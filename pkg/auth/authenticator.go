@@ -33,7 +33,6 @@ func CreateTadoClient(ctx context.Context, tokenPath, tokenPassphrase string) (*
 		tokenPath,
 		tokenPassphrase,
 		func(response *oauth2.DeviceAuthResponse) {
-			// Callback when device auth is initiated
 			fmt.Printf("\nNo token found. Visit this link to authenticate:\n")
 			fmt.Printf("%s\n\n", response.VerificationURIComplete)
 		},
