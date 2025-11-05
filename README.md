@@ -36,7 +36,7 @@ The easiest way to get started is using the pre-built Docker image from Docker H
 docker run -d \
   --name tado-exporter \
   -p 9100:9100 \
-  -v tado-tokens:/root/.tado-exporter \
+  -v tado-tokens:/home/exporter/.tado-exporter \
   -e TADO_TOKEN_PASSPHRASE="your-secure-passphrase" \
   adventuresintech/tado-prometheus-exporter
 
@@ -195,8 +195,8 @@ Examples can be found in [docs/examples/tado-exporter-rules.yml](./docs/examples
 
 **Q: "Token file corrupted or invalid"**
 - Verify passphrase is correct
-- Check file permissions: `ls -la ~/.tado-exporter/token.json`
-- Delete and re-authenticate: `rm ~/.tado-exporter/token.json && docker restart tado-exporter`
+- Check file permissions: `docker exec tado-exporter ls -la /home/exporter/.tado-exporter/token.json`
+- Delete and re-authenticate: `docker exec tado-exporter rm /home/exporter/.tado-exporter/token.json && docker restart tado-exporter`
 
 **Q: "No metrics returned"**
 - Check exporter is running: `curl http://localhost:9100/health`

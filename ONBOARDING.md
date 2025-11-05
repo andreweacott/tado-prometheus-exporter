@@ -377,14 +377,14 @@ go tool cover -html=coverage.out
 
 2. **Check token file:**
    ```bash
-   ls -la ~/.tado-exporter/token.json
+   docker exec tado-exporter ls -la /home/exporter/.tado-exporter/token.json
    # Should exist and have restrictive permissions
    ```
 
 3. **Manually delete token to re-authenticate:**
    ```bash
-   rm ~/.tado-exporter/token.json
-   ./exporter --token-passphrase=your-secret
+   docker exec tado-exporter rm /home/exporter/.tado-exporter/token.json
+   docker restart tado-exporter
    # Will prompt for re-authentication
    ```
 
@@ -597,11 +597,11 @@ for _, tt := range tests {
 
 ### Non-Obvious Behavior
 
-**1. Token Path Default Depends on HOME**
+**1. Token Path Uses the exporter User's Home**
 
-The default token path is `~/.tado-exporter/token.json`, but in Docker, `HOME=/root`, so it becomes `/root/.tado-exporter/token.json`.
+The default token path is `~/.tado-exporter/token.json`, which expands to `/home/exporter/.tado-exporter/token.json` (exporter runs as non-root user with `HOME=/home/exporter`).
 
-**Why it matters:** Volume mounts need to match. In the local docker-compose stack, the exporter runs as root, so tokens go to `/root/.tado-exporter`. For production (non-root user), tokens go to `/home/exporter/.tado-exporter`. See local/docker-compose.yml for the local example.
+**Why it matters:** For host binaries, tokens go to the user's `~/.tado-exporter/`. In Docker, the volume mount needs to match `/home/exporter/.tado-exporter`. See local/docker-compose.yml for the example.
 
 **2. Prometheus Registration is Global**
 
@@ -687,9 +687,9 @@ If no valid token exists, the exporter blocks on authentication (waiting for use
 
 **Fix:**
 ```bash
-rm ~/.tado-exporter/token.json
-./exporter --token-passphrase=your-secret
-# Re-authenticate
+docker exec tado-exporter rm /home/exporter/.tado-exporter/token.json
+docker restart tado-exporter
+# Re-authenticate via docker logs
 ```
 
 **2. "Prometheus registration error"**
@@ -736,10 +736,7 @@ curl http://localhost:9100/metrics
 curl http://localhost:9100/health
 
 # View token file (encrypted, won't be readable)
-cat ~/.tado-exporter/token.json
-
-# Run with debug logging
-./exporter --log-level=debug --token-passphrase=secret
+docker exec tado-exporter cat /home/exporter/.tado-exporter/token.json
 
 # Test authentication without running server
 # (Not currently supported, but you could add a --auth-only flag)

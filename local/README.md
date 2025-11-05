@@ -40,16 +40,12 @@ This stack is optimized for a smooth local testing experience:
 
 ✅ **Grafana Datasource** - Prometheus is automatically configured as a datasource
 ✅ **Grafana Dashboard** - The example Tado Exporter dashboard is auto-imported
-✅ **Token Storage** - Correctly mounts to `/root/.tado-exporter` (exporter runs as root locally)
+✅ **Token Storage** - Correctly mounts to `/home/exporter/.tado-exporter` (exporter runs as non-root user)
 ✅ **Network Connectivity** - All services are on the same Docker network with service-to-service DNS resolution
 
 ### Security Note
 
-For local testing convenience, the exporter runs as **root** in the docker-compose stack. This is acceptable for development/testing but **not recommended for production**.
-
-**Why root locally?** When running as root, `$HOME=/root` by default, so the exporter stores tokens at `/root/.tado-exporter` (the default location).
-
-**For production**, use the standalone `docker run` method which properly runs the exporter as a non-root user (`exporter` UID 1000) with `$HOME=/home/exporter`.
+The exporter runs as a non-root user (`exporter` UID 1000) for security. Tokens are stored at `/home/exporter/.tado-exporter` with proper permissions set by the Dockerfile and entrypoint script.
 
 ## Quick Start
 
@@ -195,7 +191,7 @@ docker-compose restart
 docker-compose logs exporter
 
 # Remove the stored token and re-authenticate
-docker exec tado-exporter rm /root/.tado-exporter/token.json
+docker exec tado-exporter rm /home/exporter/.tado-exporter/token.json
 docker-compose restart exporter
 
 # Check logs again for authentication URL
