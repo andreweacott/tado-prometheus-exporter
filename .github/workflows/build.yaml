@@ -58,7 +58,6 @@ jobs:
         with:
           files: |
             README.md
-            CHANGELOG.md
           draft: false
           prerelease: false
         env:
