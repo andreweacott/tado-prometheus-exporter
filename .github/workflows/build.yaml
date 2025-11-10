@@ -63,7 +63,7 @@ jobs:
 
       - name: Generate artifact attestation
         if: github.ref_type == 'tag'
-        uses: actions/attest-build-provenance@v2
+        uses: actions/attest-build-provenance@v3
         with:
           subject-name: index.docker.io/adventuresintech/tado-prometheus-exporter
           subject-digest: ${{ steps.push.outputs.digest }}
